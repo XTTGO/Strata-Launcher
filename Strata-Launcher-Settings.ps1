@@ -17,6 +17,72 @@ function Test-StrataOwnPathConfig {
     return [string]$Config.arch -eq 'qwen35moe'
 }
 
+function Split-StrataEngineArgs {
+    param([string[]]$ArgsList)
+    $groups = [Collections.ArrayList]::new()
+    $tokens = [Collections.ArrayList]::new()
+    foreach ($item in @($ArgsList)) {
+        $word = [string]$item
+        if (-not $word) { continue }
+        if ($word.StartsWith('--') -or $tokens.Count -eq 0) {
+            if ($tokens.Count) {
+                [void]$groups.Add([pscustomobject]@{ Flag = [string]$tokens[0]; Tokens = [string[]]@($tokens) })
+            }
+            $tokens = [Collections.ArrayList]::new()
+        }
+        [void]$tokens.Add($word)
+    }
+    if ($tokens.Count) {
+        [void]$groups.Add([pscustomobject]@{ Flag = [string]$tokens[0]; Tokens = [string[]]@($tokens) })
+    }
+    return @($groups)
+}
+
+function Get-StrataEffectiveArgs {
+    param($Config)
+    $base = @(Split-StrataEngineArgs -ArgsList @($Config.args))
+    $user = @(Split-StrataEngineArgs -ArgsList @($Config.user_args))
+    if (-not $user.Count) { return @($Config.args) }
+    $overrides = @{}
+    foreach ($group in $user) { if ($group.Flag.StartsWith('--')) { $overrides[$group.Flag] = $true } }
+    foreach ($group in $base) {
+        if (-not $overrides.ContainsKey($group.Flag)) { foreach ($word in $group.Tokens) { Write-Output $word } }
+    }
+    foreach ($group in $user) { foreach ($word in $group.Tokens) { Write-Output $word } }
+}
+
+function Sync-StrataUserArgsForSave {
+    param($Config, [string[]]$OriginalArgs)
+    $managed = @('--max-context','--kv','--kv-resident','--vram-reserve-mib',
+                 '--rope-scaling','--rope-scale','--vision')
+    $before = @(Split-StrataEngineArgs -ArgsList $OriginalArgs)
+    $after = @(Split-StrataEngineArgs -ArgsList @($Config.args))
+    $user = @(Split-StrataEngineArgs -ArgsList @($Config.user_args))
+    $result = [Collections.ArrayList]::new()
+    foreach ($group in $user) {
+        if ($managed -notcontains $group.Flag) {
+            foreach ($word in $group.Tokens) { [void]$result.Add($word) }
+        }
+    }
+    foreach ($flag in $managed) {
+        $was = @($before | Where-Object Flag -EQ $flag | Select-Object -First 1)
+        $now = @($after | Where-Object Flag -EQ $flag | Select-Object -First 1)
+        $hadOverride = @($user | Where-Object Flag -EQ $flag).Count -gt 0
+        $changed = (($was.Count -ne $now.Count) -or
+                    (($was | ForEach-Object { $_.Tokens -join [char]0 }) -join [char]1) -ne
+                    (($now | ForEach-Object { $_.Tokens -join [char]0 }) -join [char]1))
+        if (($changed -or $hadOverride) -and $now.Count) {
+            foreach ($word in $now[0].Tokens) { [void]$result.Add($word) }
+        }
+    }
+    if ($result.Count) {
+        $Config | Add-Member -NotePropertyName user_args -NotePropertyValue ([string[]]@($result)) -Force
+    } else {
+        $Config.PSObject.Properties.Remove('user_args')
+    }
+    $Config | Add-Member -NotePropertyName args_written -NotePropertyValue ([string[]]@($Config.args)) -Force
+}
+
 function Get-StrataVisionConfigForSave {
     param($Config, [string]$SidecarPath, [string]$Root)
 

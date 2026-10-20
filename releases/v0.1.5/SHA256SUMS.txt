@@ -1,0 +1,1 @@
+d9930e4e332e9d449323c04bc87d5c759f14f07784e35fb727b0decb74035f3c  Strata-Launcher-v0.1.5-for-existing-install.zip

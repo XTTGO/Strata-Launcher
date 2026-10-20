@@ -69,7 +69,33 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
     data = json.loads(raw.decode("utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError("configuration root is not an object")
-    return raw, data
+    return raw, effective_config(data)
+
+
+def _arg_groups(args: Any) -> list[list[str]]:
+    groups: list[list[str]] = []
+    for value in args if isinstance(args, list) else []:
+        word = str(value)
+        if word.startswith("--") or not groups:
+            groups.append([word])
+        else:
+            groups[-1].append(word)
+    return groups
+
+
+def effective_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Use the engine's 0.2.1 user_args precedence before making a test snapshot."""
+    result = dict(config)
+    base = _arg_groups(config.get("args"))
+    user = _arg_groups(config.get("user_args"))
+    overridden = {group[0] for group in user if group[0].startswith("--")}
+    result["args"] = [word for group in base if group[0] not in overridden for word in group]
+    result["args"].extend(word for group in user for word in group)
+    # The snapshot is an independently controlled run config. Leaving user_args in
+    # it would let the server override its context, memory and vision conditions.
+    result.pop("user_args", None)
+    result.pop("args_written", None)
+    return result
 
 
 def is_qwen36_own_path(config: dict[str, Any]) -> bool:
@@ -161,7 +187,7 @@ def snapshot_profile(
     uniform_slots: int = 1,
 ) -> ConfigSnapshot:
     revalidate_profile(profile)
-    config = json.loads(profile.config_bytes.decode("utf-8-sig"))
+    config = effective_config(json.loads(profile.config_bytes.decode("utf-8-sig")))
     if uniform_phase is not None:
         from .uniform import normalize_uniform_config
         config = normalize_uniform_config(config, phase=uniform_phase, slots=uniform_slots)

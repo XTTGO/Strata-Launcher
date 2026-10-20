@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from launcher.benchmark.models import ModelProfile, snapshot_profile
+from launcher.benchmark.models import ModelProfile, discover_profiles, snapshot_profile
 from launcher.benchmark.runner import build_parser, run_benchmark, verify_serving_slots
 from launcher.benchmark.uniform import normalize_uniform_config, validate_uniform_compatibility
 
@@ -20,6 +20,33 @@ def _profile(path: Path, name: str, config: dict) -> ModelProfile:
 
 
 class UniformConfigTests(unittest.TestCase):
+    def test_new_strata_user_args_cannot_override_benchmark_conditions(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+            root = Path(folder)
+            config = {
+                "exe": "engine/strata.exe", "model_name": "Demo", "port": 8080,
+                "args": ["--native", "model.gguf", "--max-context", "32768",
+                         "--vram-reserve-mib", "2048", "--vision"],
+                "user_args": ["--max-context", "131072", "--vram-reserve-mib", "0",
+                              "--expert-profile-save", "profile.bin", "--spec", "4"],
+                "args_written": ["--native", "model.gguf", "--max-context", "32768"],
+                "vision": {"gpu": True},
+            }
+            profile = _profile(root / "strata-demo.json", "demo", config)
+            discovered = discover_profiles(root)[0]
+            self.assertEqual(discovered.config["args"][discovered.config["args"].index("--max-context") + 1], "131072")
+            snapshot = snapshot_profile(profile, root / "configs", 8188, 1,
+                                        {"--max-context": "262144"}, uniform_phase="solo")
+            args = snapshot.config["args"]
+            self.assertEqual(args[args.index("--max-context") + 1], "262144")
+            self.assertEqual(args[args.index("--vram-reserve-mib") + 1], "3072")
+            self.assertEqual(args[args.index("--spec") + 1], "4")
+            self.assertNotIn("--vision", args)
+            self.assertNotIn("--expert-profile-save", args)
+            self.assertNotIn("user_args", snapshot.config)
+            self.assertNotIn("args_written", snapshot.config)
+            self.assertEqual(json.loads(profile.config_path.read_text()), config)
+
     def test_cli_uses_controlled_snapshots_by_default(self):
         self.assertTrue(build_parser().parse_args(["run"]).uniform_config)
 

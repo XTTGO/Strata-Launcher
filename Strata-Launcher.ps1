@@ -203,6 +203,8 @@ if (-not (Test-Path -LiteralPath $LauncherSettingsModule)) { throw '找不到 la
 $LauncherSettingsSource = Get-Content -LiteralPath $LauncherSettingsModule -Raw -Encoding UTF8
 . ([scriptblock]::Create($LauncherSettingsSource))
 $cfg = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$cfg.args = @(Get-StrataEffectiveArgs -Config $cfg)
+$initialEngineArgs = [string[]]@($cfg.args)
 $isOwnPath = Test-StrataOwnPathConfig -Config $cfg
 $configStem=[IO.Path]::GetFileNameWithoutExtension($ConfigPath)
 $sharedPath = Join-Path $Root ($configStem + '.shared-settings.json')
@@ -865,6 +867,7 @@ function Save-Settings {
     }
     }
     $new.args = @($a); $new.port = [int]$port.Value
+    Sync-StrataUserArgsForSave -Config $new -OriginalArgs $initialEngineArgs
     if ([int]$parallel.SelectedItem -le 1) { $new.PSObject.Properties.Remove('parallel') } else { $new | Add-Member -NotePropertyName parallel -NotePropertyValue ([int]$parallel.SelectedItem) -Force }
     $sampling = [pscustomobject]@{ temperature=[double](NText $temp); top_p=[double](NText $topP); top_k=[int]$topK.Value; min_p=[double](NText $minP); presence_penalty=[double](NText $presence); repetition_penalty=[double](NText $repeat); frequency_penalty=[double](NText $freq); penalty_last_n=[int]$lastN.Value }
     $new | Add-Member -NotePropertyName sampling -NotePropertyValue (Merge-StrataSampling -Existing $new.sampling -Edited $sampling -SeedText $seedText.Text) -Force
