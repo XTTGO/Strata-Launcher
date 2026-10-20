@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+backups/
+data/
+dist/
+reports/
+tests/.tmp/
+tests/restart probe */
+skills/
+video/

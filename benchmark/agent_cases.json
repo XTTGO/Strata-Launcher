@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "json-schema-basic",
+      "category": "structured_output",
+      "preset": "standard",
+      "prompt": "只输出一个 JSON 对象，不要 Markdown。字段必须是 name、priority、steps。name 为 backup，priority 为 2，steps 是包含 scan 和 copy 的数组。",
+      "assertions": [
+        {"type": "json_required", "keys": ["name", "priority", "steps"]},
+        {"type": "json_value", "key": "name", "expected": "backup"},
+        {"type": "json_value", "key": "priority", "expected": 2},
+        {"type": "required_strings", "values": ["scan", "copy"]}
+      ]
+    },
+    {
+      "id": "tool-call-weather",
+      "category": "tool_call",
+      "preset": "standard",
+      "prompt": "查询上海未来 3 天的天气，请调用提供的工具。",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "查询天气",
+            "parameters": {
+              "type": "object",
+              "properties": {"city": {"type": "string"}, "days": {"type": "integer"}},
+              "required": ["city", "days"]
+            }
+          }
+        }
+      ],
+      "assertions": [
+        {"type": "tool_call", "name": "get_weather", "arguments": {"city": "上海", "days": 3}}
+      ]
+    },
+    {
+      "id": "instruction-constraints",
+      "category": "instruction_following",
+      "preset": "standard",
+      "prompt": "严格输出三行。第一行是 ALPHA，第二行是数字 42，第三行是 DONE。不要输出其他文字。",
+      "assertions": [
+        {"type": "regex", "pattern": "^ALPHA\\s*\\n42\\s*\\nDONE\\s*$"}
+      ]
+    },
+    {
+      "id": "state-retrieval",
+      "category": "state",
+      "preset": "standard",
+      "messages": [
+        {"role": "user", "content": "请记住：项目代号是 ORCHID-731，负责人姓林，截止日期是 2031-04-12。"},
+        {"role": "assistant", "content": "好的，我会记住。"},
+        {"role": "user", "content": "现在只输出 JSON：code、owner、deadline。"}
+      ],
+      "assertions": [
+        {"type": "json_value", "key": "code", "expected": "ORCHID-731"},
+        {"type": "json_value", "key": "owner", "expected": "林"},
+        {"type": "json_value", "key": "deadline", "expected": "2031-04-12"}
+      ]
+    },
+    {
+      "id": "tool-error-recovery",
+      "category": "tool_recovery",
+      "preset": "standard",
+      "messages": [
+        {"role": "user", "content": "查询上海未来 30 天的天气。"},
+        {"role": "assistant", "content": null, "tool_calls": [{"id": "call_previous", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"上海\",\"days\":30}"}}]},
+        {"role": "tool", "tool_call_id": "call_previous", "content": "{\"error\":\"days must be between 1 and 7; use 3 when the requested range is unsupported\"}"}
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "查询天气，days 必须为 1 到 7",
+            "parameters": {
+              "type": "object",
+              "properties": {"city": {"type": "string"}, "days": {"type": "integer", "minimum": 1, "maximum": 7}},
+              "required": ["city", "days"]
+            }
+          }
+        }
+      ],
+      "assertions": [
+        {"type": "tool_call", "name": "get_weather", "arguments": {"city": "上海", "days": 3}}
+      ]
+    },
+    {
+      "id": "code-fix-line",
+      "category": "coding",
+      "preset": "standard",
+      "prompt": "函数有错误：def add(a, b): return a - b。只输出 JSON，字段 replacement 的值必须是正确的 return 语句。",
+      "assertions": [
+        {"type": "json_value", "key": "replacement", "expected": "return a + b"}
+      ]
+    },
+    {
+      "id": "thinking-off",
+      "category": "reasoning_control",
+      "preset": "standard",
+      "reasoning_effort": "none",
+      "prompt": "只回答 7。",
+      "max_tokens": 16,
+      "assertions": [
+        {"type": "regex", "pattern": "^\\s*7\\s*$"},
+        {"type": "reasoning_empty"}
+      ]
+    },
+    {
+      "id": "format-no-markdown",
+      "category": "instruction_following",
+      "preset": "full",
+      "prompt": "输出逗号分隔的 red,green,blue，不要 Markdown，不要解释。",
+      "assertions": [
+        {"type": "regex", "pattern": "^\\s*red,green,blue\\s*$"},
+        {"type": "forbidden_strings", "values": ["```", "解释"]}
+      ]
+    },
+    {
+      "id": "evidence-code",
+      "category": "retrieval",
+      "preset": "full",
+      "prompt": "资料：A 项编号 JUNE-14，B 项编号 MARCH-82，C 项编号 NOVA-55。只输出 B 项编号。",
+      "assertions": [
+        {"type": "regex", "pattern": "^\\s*MARCH-82\\s*$"}
+      ]
+    }
+  ]
+}
