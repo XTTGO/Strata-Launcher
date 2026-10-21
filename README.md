@@ -20,7 +20,7 @@
 
 选择模型、预设、上下文上限和测试项目；运行后可查看本机生成的对比报告。
 
-![Strata Launcher v0.1.5 批量 Benchmark 界面：模型、测试规模和项目选择](docs/images/benchmark-v0.1.5.png)
+![Strata Launcher v0.1.5 批量 Benchmark 界面：模型、测试规模和项目选择](docs/images/benchmark-v0.1.5-opaque.png)
 
 <sub>v0.1.5 实际界面截图。截图仅展示测试设置，没有启动 Benchmark。</sub>
 
