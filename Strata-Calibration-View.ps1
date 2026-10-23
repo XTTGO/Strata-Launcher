@@ -1,4 +1,4 @@
-function Get-CalibrationProperty($Object, [string]$Name, $Fallback = $null) {
+﻿function Get-CalibrationProperty($Object, [string]$Name, $Fallback = $null) {
     if ($null -ne $Object) {
         $property = $Object.PSObject.Properties[$Name]
         if ($property -and $null -ne $property.Value -and [string]$property.Value -ne '') {

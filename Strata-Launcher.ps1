@@ -998,13 +998,23 @@ $stop.Add_Click({
         }
         $taskkill=Join-Path $env:SystemRoot 'System32\taskkill.exe'
         $result=Start-Process -FilePath $taskkill -ArgumentList @('/PID',([string]$target.StopId),'/T','/F') -Wait -PassThru -NoNewWindow
-        if ($result.ExitCode -ne 0) { throw "Windows 无法停止 Strata 进程（taskkill 退出码 $($result.ExitCode)）。" }
+        $stoppedEarly=$false
+        if ($result.ExitCode -ne 0) {
+            # taskkill 128：根进程在确认期间已自行退出（例如 Strata 已停止）。只有子进程也都不在时才按“已停止”处理。
+            $survivors=@()
+            if ($target.ProcessId -and [StrataProcessTree]::ProcessName([int]$target.ProcessId)) { $survivors += [int]$target.ProcessId }
+            foreach ($engineId in $target.EngineIds) { if ([StrataProcessTree]::ProcessName([int]$engineId)) { $survivors += [int]$engineId } }
+            if ($survivors.Count) {
+                throw "taskkill 退出码 $($result.ExitCode)：根进程已不存在，但仍有 Strata 子进程在运行（PID $($survivors -join ', ')）。请用任务管理器结束它们。"
+            }
+            $stoppedEarly=$true
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(15)
         while ((Port-Busy $p) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 500 }
         if (Port-Busy $p) { $status.Text="Strata 进程树已结束，但端口 $p 仍被占用；没有触碰占用者。" }
         else {
             if (Test-Path -LiteralPath $PidPath) { Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue }
-            $status.Text='Strata 服务及模型引擎已停止。现在可以保存并启动新配置。'
+            $status.Text=if ($stoppedEarly) { "Strata 在确认时已自行退出（无需停止）；端口 $p 已释放。" } else { 'Strata 服务及模型引擎已停止。现在可以保存并启动新配置。' }
         }
         [Windows.Forms.MessageBox]::Show($status.Text,'停止结果','OK','Information') | Out-Null
     } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'停止失败','OK','Error') | Out-Null }
