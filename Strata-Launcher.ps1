@@ -32,6 +32,8 @@ if ($CheckOnly) {
         launcher = $LauncherEnvironment.LauncherDirectory
         launcher_version = $LauncherVersion
         model_count = $LauncherEnvironment.ModelConfigs.Count
+        unavailable_model_count = $LauncherEnvironment.UnavailableModels.Count
+        engine_warning = $LauncherEnvironment.EngineWarning
         model_catalog_status = $LauncherEnvironment.ModelCatalogStatus
         model_catalog_source = $LauncherEnvironment.ModelCatalogSource
         model_catalog_count = $LauncherEnvironment.ModelCatalogCount
@@ -638,6 +640,10 @@ $modelSwitch.Add_Click({
     try {
         $picked=$modelConfigs | Where-Object { $_.Label -eq [string]$modelSelector.SelectedItem } | Select-Object -First 1
         if (-not $picked) { throw '没有找到所选模型的配置文件。' }
+        $latest=Get-Content -LiteralPath $picked.Path -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (@(Get-StrataMissingModelFiles -Config $latest -ConfigPath $picked.Path).Count) {
+            throw '所选模型的 GGUF 文件或专家包已缺失。请刷新模型列表。'
+        }
         if ([string]::Equals($picked.Path,$ConfigPath,[StringComparison]::OrdinalIgnoreCase)) {
             $status.Text='当前已经是这个模型。'
             return
@@ -658,6 +664,13 @@ $status = [Windows.Forms.Label]::new(); $status.Tag='muted'; $status.Dock='Fill'
 if ($LauncherEnvironment.ModelCatalogStatus -ne 'current-setup') {
     $status.Text += ' · 官方模型目录读取失败，名称使用兼容映射'
     $modelToolTip.SetToolTip($status, [string]$LauncherEnvironment.ModelCatalogError)
+}
+if ($LauncherEnvironment.UnavailableModels.Count) {
+    $status.Text += " · 已隐藏 $($LauncherEnvironment.UnavailableModels.Count) 个模型组件缺失的配置"
+}
+if ($LauncherEnvironment.EngineWarning) {
+    $status.Text += ' · 引擎版本偏旧，旧版仍可启动'
+    $modelToolTip.SetToolTip($status, [string]$LauncherEnvironment.EngineWarning)
 }
 
 $modelSwitch.Tag='button:Secondary'; $calibrate.Tag='button:Secondary'; $benchmark.Tag='button:Accent'
@@ -789,13 +802,13 @@ $officialUpdate.Add_Click({
     try {
         $p=[int]$port.Value
         if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 上的 Strata 正在运行。请先停止服务，再执行官方更新。",'请先停止 Strata','OK','Warning') | Out-Null; return }
-        $update=Join-Path $Root 'UPDATE.bat'
-        if (-not (Test-Path -LiteralPath $update)) { throw '找不到官方 UPDATE.bat。' }
-        $answer=[Windows.Forms.MessageBox]::Show("官方更新会执行 git pull，并检查引擎、Python 依赖和已安装模型配置。`r`n模型文件不会被重新下载。`r`n`r`n现在继续吗？",'官方更新','OKCancel','Information')
+        $update=Join-Path $LauncherDir 'Strata-Launcher-Update.ps1'
+        if (-not (Test-Path -LiteralPath $update)) { throw '找不到启动器更新脚本 Strata-Launcher-Update.ps1。' }
+        $answer=[Windows.Forms.MessageBox]::Show("更新器会安全地快进 Strata 源码，再运行官方安装更新。`r`n没有上游分支时只跟随最新稳定 Release；不能快进时会停止，不会覆盖本地改动。`r`n模型文件不会重新下载。`r`n`r`n现在继续吗？",'官方更新','OKCancel','Information')
         if ($answer -ne [Windows.Forms.DialogResult]::OK) { return }
         [void](Backup-OfficialSettings -Snapshot)
-        Start-CmdCommand ('call "' + $update + '"') -KeepOpen
-        $status.Text='官方更新已在独立窗口启动。'
+        Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '"') -KeepOpen
+        $status.Text='更新窗口已打开；请以窗口末尾的版本校验结果为准。'
     } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'官方更新启动失败','OK','Error') | Out-Null }
 })
 $backupSettings.Add_Click({
@@ -808,10 +821,14 @@ $backupSettings.Add_Click({
 })
 $refreshModels.Add_Click({
     try {
+        $fresh=Get-StrataLauncherEnvironment -LauncherDirectory $LauncherDir
+        if (-not $fresh.IsReady) { throw $fresh.Message }
+        $target=$fresh.ModelConfigs | Where-Object { [string]::Equals($_.Path,$ConfigPath,[StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+        if (-not $target) { $target=$fresh.ModelConfigs[0] }
         $tmp=$SelectionPath + '.tmp'
-        [IO.File]::WriteAllText($tmp,$ConfigPath + "`r`n",[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($tmp,$target.Path + "`r`n",[Text.UTF8Encoding]::new($false))
         Move-Item -LiteralPath $tmp -Destination $SelectionPath -Force
-        $form.Tag=$ConfigPath
+        $form.Tag=$target.Path
         $form.Close()
     } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'刷新失败','OK','Error') | Out-Null }
 })
@@ -996,6 +1013,10 @@ $start.Add_Click({
     try {
         $p=[int]$port.Value
         if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 已被占用。为避免关闭或覆盖正在运行的服务，本次没有启动。请先确认占用程序后再试。",'端口占用','OK','Warning') | Out-Null; return }
+        $latest=Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (@(Get-StrataMissingModelFiles -Config $latest -ConfigPath $ConfigPath).Count) {
+            throw '当前模型的 GGUF 文件或专家包已缺失。请刷新模型列表。'
+        }
         $new=Save-Settings
         if (-not (Test-Path -LiteralPath $Py) -or -not (Test-Path -LiteralPath $Server)) { throw '找不到 Strata Python 环境或 server.py。' }
         $network=Get-StrataLanLaunchSettings -Enabled ([bool]$lanAccess.Checked) -KeyPath $LanKeyPath

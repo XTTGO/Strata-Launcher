@@ -28,6 +28,7 @@ try {
         'Strata-Launcher-GpuPower.ps1',
         'Strata-Launcher-Lan.ps1',
         'Strata-Launcher-LanFirewall.ps1',
+        'Strata-Launcher-Update.ps1',
         'Build-Launcher-Package.ps1',
         'Strata-Launcher-Reload.ps1',
         'Strata-Calibration-View.ps1',

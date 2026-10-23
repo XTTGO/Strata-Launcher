@@ -21,6 +21,10 @@
     $missing = @($required.GetEnumerator() | Where-Object {
         -not (Test-Path -LiteralPath $_.Value -PathType Leaf)
     } | ForEach-Object { $_.Key })
+    $engineStatus = Get-StrataEngineVersionStatus -Root $root
+    $engineIssue = [string]$engineStatus.Issue
+    $engineWarning = [string]$engineStatus.Warning
+    if ($engineIssue) { $missing += $engineIssue }
 
     $modelCatalog = @()
     $catalogError = ''
@@ -33,12 +37,22 @@
     }
 
     $modelConfigs = [Collections.ArrayList]::new()
+    $unavailableModels = [Collections.ArrayList]::new()
     if (Test-Path -LiteralPath $root -PathType Container) {
         foreach ($file in (Get-ChildItem -LiteralPath $root -File -Filter 'strata-*.json' -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notlike '*.shared-settings.json' } | Sort-Object Name)) {
             try {
                 $candidate = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
                 if (-not $candidate.exe -or $null -eq $candidate.args -or -not $candidate.model_name) { continue }
+                $missingModelFiles = @(Get-StrataMissingModelFiles -Config $candidate -ConfigPath $file.FullName)
+                if ($missingModelFiles.Count) {
+                    [void]$unavailableModels.Add([pscustomobject]@{
+                        ModelName = [string]$candidate.model_name
+                        Path = $file.FullName
+                        MissingFiles = $missingModelFiles
+                    })
+                    continue
+                }
                 $label = Get-StrataModelLabel -ModelName ([string]$candidate.model_name) -Arch ([string]$candidate.arch) -Catalog $modelCatalog
                 [void]$modelConfigs.Add([pscustomobject]@{
                     Label = $label
@@ -49,17 +63,26 @@
         }
     }
     Resolve-StrataModelLabelCollisions -ModelConfigs @($modelConfigs)
-    if (-not $modelConfigs.Count) { $missing += 'strata-*.json（至少一个可用模型配置）' }
+    if (-not $modelConfigs.Count) {
+        $missing += $(if ($unavailableModels.Count) { '模型文件或专家包（配置仍在，但引用的组件已缺失）' } else { 'strata-*.json（至少一个可用模型配置）' })
+    }
 
     $message = ''
     if ($missing.Count) {
-        $message = "启动器没有位于一个已安装完成的 Strata 目录中。`r`n`r`n" +
-            "请把整个 launcher 文件夹放到 Strata 根目录下，使两者成为：`r`n" +
-            "  <Strata>\START-HERE.bat`r`n" +
-            "  <Strata>\launcher\Strata-Launcher.bat`r`n`r`n" +
-            "当前识别的 Strata 根目录：$root`r`n" +
-            "缺少：`r`n  - " + ($missing -join "`r`n  - ") + "`r`n`r`n" +
-            '请先用官方 START-HERE.bat 完成 Strata 和模型安装，再打开本启动器。'
+        if ($engineIssue -and $missing.Count -eq 1) {
+            $message = $engineIssue + "`r`n请等待官方更新完成，或检查 UPDATE.bat 的最终错误。"
+        } elseif ($unavailableModels.Count -and $missing.Count -eq 1) {
+            $message = "发现 $($unavailableModels.Count) 个模型配置，但它们引用的 GGUF 文件或专家包已缺失。`r`n" +
+                "配置文件没有被删除。请恢复模型文件或使用官方 START-HERE.bat 重新安装模型，然后重新打开启动器。"
+        } else {
+            $message = "启动器没有位于一个已安装完成的 Strata 目录中。`r`n`r`n" +
+                "请把整个 launcher 文件夹放到 Strata 根目录下，使两者成为：`r`n" +
+                "  <Strata>\START-HERE.bat`r`n" +
+                "  <Strata>\launcher\Strata-Launcher.bat`r`n`r`n" +
+                "当前识别的 Strata 根目录：$root`r`n" +
+                "缺少：`r`n  - " + ($missing -join "`r`n  - ") + "`r`n`r`n" +
+                '请先用官方 START-HERE.bat 完成 Strata 和模型安装，再打开本启动器。'
+        }
     }
 
     return [pscustomobject]@{
@@ -70,12 +93,83 @@
         Python = Join-Path $root '.venv\Scripts\python.exe'
         Server = Join-Path $root 'serve\server.py'
         ModelConfigs = @($modelConfigs)
+        UnavailableModels = @($unavailableModels)
+        EngineIssue = $engineIssue
+        EngineWarning = $engineWarning
         ModelCatalogStatus = $(if ($modelCatalog.Count) { 'current-setup' } else { 'fallback' })
         ModelCatalogSource = $catalogSource
         ModelCatalogCount = $modelCatalog.Count
         ModelCatalogError = $catalogError
         Missing = @($missing)
         Message = $message
+    }
+}
+
+function Get-StrataEngineVersionStatus {
+    param([Parameter(Mandatory=$true)][string]$Root)
+
+    $setupPath = Join-Path $Root 'setup.py'
+    $issue = ''
+    $warning = ''
+    if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+        return [pscustomobject]@{ Issue=$issue; Warning=$warning }
+    }
+    try {
+        $setupSource = Get-Content -LiteralPath $setupPath -Raw -Encoding UTF8
+        $match = [regex]::Match($setupSource,'(?m)^MIN_ENGINE\s*=\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)')
+        if (-not $match.Success) { return [pscustomobject]@{ Issue=$issue; Warning=$warning } }
+        $minimum = [version]::new([int]$match.Groups[1].Value,[int]$match.Groups[2].Value,[int]$match.Groups[3].Value)
+        $cmakePath = Join-Path $Root 'CMakeLists.txt'
+        if (Test-Path -LiteralPath $cmakePath -PathType Leaf) {
+            $cmakeSource = Get-Content -LiteralPath $cmakePath -Raw -Encoding UTF8
+            $sourceMatch = [regex]::Match($cmakeSource,'(?m)^project\(strata\s+VERSION\s+(\d+(?:\.\d+)+)\b')
+            if ($sourceMatch.Success) {
+                $sourceVersion = [version]$sourceMatch.Groups[1].Value
+                if ($sourceVersion -gt $minimum) { $minimum = $sourceVersion }
+            }
+        }
+        $buildPath = Join-Path $Root 'engine\BUILD.json'
+        if (-not (Test-Path -LiteralPath $buildPath -PathType Leaf)) {
+            $issue = "引擎安装状态无法确认：缺少 $buildPath。"
+            return [pscustomobject]@{ Issue=$issue; Warning=$warning }
+        }
+        $build = Get-Content -LiteralPath $buildPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $installed = [version]([string]$build.version)
+        if ($installed -lt $minimum) {
+            $warning = "当前引擎 $installed 低于 Strata 当前源码期望的 $minimum；官方允许继续启动旧引擎，请检查更新结果。"
+        }
+    } catch {
+        $issue = '无法读取或比较 engine\BUILD.json 中的引擎版本。'
+    }
+    return [pscustomobject]@{ Issue=$issue; Warning=$warning }
+}
+
+function Get-StrataMissingModelFiles {
+    param([Parameter(Mandatory=$true)]$Config, [Parameter(Mandatory=$true)][string]$ConfigPath)
+
+    # setup.py leaves strata-*.json in place when the GGUF folder is removed.
+    # Only check paths that identify model weights; an optional helper component
+    # going missing must not silently remove an otherwise installed model.
+    $base = [string[]]@($Config.args)
+    $user = [string[]]@($Config.user_args)
+    $configDirectory = Split-Path -Parent $ConfigPath
+    $workingDirectory = if ($Config.cwd) {
+        if ([IO.Path]::IsPathRooted([string]$Config.cwd)) { [string]$Config.cwd }
+        else { Join-Path $configDirectory ([string]$Config.cwd) }
+    } else { $configDirectory }
+    foreach ($flag in @('--pack','--native','--native-dense-gguf','--gguf','--ple-gguf','--embd-gguf')) {
+        $value = ''
+        foreach ($argsList in @($base,$user)) {
+            $index = [Array]::IndexOf([string[]]$argsList,$flag)
+            if ($index -ge 0 -and $index + 1 -lt $argsList.Count) { $value = [string]$argsList[$index + 1] }
+        }
+        if (-not $value) { continue }
+        try {
+            $path = if ([IO.Path]::IsPathRooted($value)) { $value } else { Join-Path $workingDirectory $value }
+            $path = [IO.Path]::GetFullPath($path)
+            $kind = if ($flag -eq '--pack') { 'Container' } else { 'Leaf' }
+            if (-not (Test-Path -LiteralPath $path -PathType $kind)) { Write-Output $path }
+        } catch { Write-Output $value }
     }
 }
 
