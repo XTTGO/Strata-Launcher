@@ -2,7 +2,7 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-当前开发版：**v0.1.6-dev.3** · 本机 **Strata v0.2.3 / 引擎 0.1.48** 的更新和一词生成校验已通过 · [已发布的 v0.1.5 打包版](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.5)
+当前开发版：**v0.1.6-dev.4** · 本机 **Strata v0.2.3 / 引擎 0.1.48** 的更新和一词生成校验已通过 · [已发布的 v0.1.5 打包版](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.5)
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -67,4 +67,4 @@
 - [版本更新记录](CHANGELOG.md)
 - [v0.1.5 发布说明与 SHA-256](releases/v0.1.5/RELEASE_NOTES.md)
 
-v0.1.5 的发布验证记录见对应发布说明。v0.1.6-dev.3 已通过 Strata v0.2.3 源码快进、引擎 0.1.47 → 0.1.48 更新及官方一词生成校验；**完整日常推理尚未验收。**
+v0.1.5 的发布验证记录见对应发布说明。v0.1.6-dev.4 已通过 Strata v0.2.3 源码快进、引擎 0.1.47 → 0.1.48 更新及官方一词生成校验；**完整日常推理尚未验收。**

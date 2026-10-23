@@ -512,6 +512,7 @@ $ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row
 $kv = Make-Combo @('int8','q4_0','k8v4') ([string](Arg-Value $cfg.args '--kv' 'int8')); Add-Row $layout $row 'KV cache 格式' $kv '更省显存的格式可能影响速度/质量'
 $kvResident = Make-Combo @('8192','16384','32768','65536','关闭') ([string](Arg-Value $cfg.args '--kv-resident' '32768')); Add-Row $layout $row '驻留 KV token' $kvResident '窗口越大通常越占显存'
 $reserve = Make-Num ([string](Arg-Value $cfg.args '--vram-reserve-mib' '990')) 0 32768 128; Add-Row $layout $row '保留显存 MiB' $reserve '为桌面/视觉预留，越大留给模型越少'
+$poolWorkers = Make-Num ([string](Arg-Value $cfg.args '--pool-workers' '0')) 0 128 1; Add-Row $layout $row 'CPU 线程数' $poolWorkers '引擎的专家池 worker 数；0 = 自动（物理核心 − 1，上限 32）；超过核心数可能更慢'
 if ($isOwnPath) {
     $kv.Enabled=$false; $kvResident.Enabled=$false; $reserve.Enabled=$false
     $expertVram=[string](Arg-Value $cfg.args '--expert-vram' '自动'); if($expertVram -ne '自动'){$expertVram+=' GiB'}
@@ -883,6 +884,8 @@ function Save-Settings {
         while ($a.Contains('--vision')) { $a.Remove('--vision') }
     }
     }
+    $poolValue=[int]$poolWorkers.Value
+    Set-Arg $a '--pool-workers' $(if ($poolValue -gt 0) { [string]$poolValue } else { $null })
     $new.args = @($a); $new.port = [int]$port.Value
     Sync-StrataUserArgsForSave -Config $new -OriginalArgs $initialEngineArgs
     if ([int]$parallel.SelectedItem -le 1) { $new.PSObject.Properties.Remove('parallel') } else { $new | Add-Member -NotePropertyName parallel -NotePropertyValue ([int]$parallel.SelectedItem) -Force }

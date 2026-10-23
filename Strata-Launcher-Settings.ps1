@@ -53,7 +53,7 @@ function Get-StrataEffectiveArgs {
 
 function Sync-StrataUserArgsForSave {
     param($Config, [string[]]$OriginalArgs)
-    $managed = @('--max-context','--kv','--kv-resident','--vram-reserve-mib',
+    $managed = @('--max-context','--kv','--kv-resident','--vram-reserve-mib','--pool-workers',
                  '--rope-scaling','--rope-scale','--vision')
     $before = @(Split-StrataEngineArgs -ArgsList $OriginalArgs)
     $after = @(Split-StrataEngineArgs -ArgsList @($Config.args))
