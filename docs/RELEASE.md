@@ -119,7 +119,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Release-Launcher.ps1 -Versio
 再看三件事：
 1. Release 页面 `draft=false`、`prerelease=false`
 2. 资产名与大小对得上，下载后的 SHA-256 等于 `SHA256SUMS.txt`
-3. `git ls-remote --tags origin v<版本>` 与本地 `HEAD` 是同一个提交
+3. `git ls-remote --tags origin v<版本>` 与本地标签指向同一提交
+
+> 标签**不必等于** HEAD：发布之后还会补文档提交，这些不影响发布内容，发布内容以标签指向的提交为准。`-VerifyOnly` 就是按这个规则检查的（标签在 HEAD 历史里 + 标签树里 `VERSION.txt` 正确），标签落后于 HEAD 时会打一行提醒。
 
 ## 8. 回滚与重发
 

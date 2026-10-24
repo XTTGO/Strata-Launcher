@@ -99,8 +99,14 @@ if ($VerifyOnly) {
     $tagCommit = git -C $root rev-parse --short "$tag^{commit}" 2>$null
     if ($LASTEXITCODE -ne 0) { Die "没有 $tag 标签；发布未完成" }
     $head = git -C $root rev-parse --short HEAD
-    if ($tagCommit -ne $head) { Die "标签 $tag 指向 $tagCommit，HEAD 是 $head；请重新打标签" }
-    Ok "标签 $tag -> $head"
+    # 发布之后还会有文档提交，所以不要求标签 == HEAD：标签必须在 HEAD 的历史里，且标签指向的树里版本号正确。
+    git -C $root merge-base --is-ancestor $tag HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) { Die "标签 $tag（$tagCommit）不在当前分支历史上；发布未完成或被打断" }
+    $tagVersion = (git -C $root show "${tag}:VERSION.txt" 2>$null | Out-String).Trim()
+    if ($tagVersion -ne $Version) { Die "标签 $tag 指向的提交里 VERSION.txt 是 '$tagVersion'，不是 $Version" }
+    Ok "标签 $tag -> $tagCommit（在 HEAD $head 的历史里，版本号正确）"
+    $behind = @(git -C $root rev-list "$tag..HEAD" 2>$null).Count
+    if ($behind -gt 0) { Write-Host "   注意  标签之后还有 $behind 个提交（文档/修复），发布内容以标签为准" -ForegroundColor Yellow }
     Say "核对通过：$tag 可以对外发布"
     exit 0
 }
