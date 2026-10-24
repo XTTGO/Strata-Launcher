@@ -6,7 +6,7 @@ function Assert-Equal($Actual, $Expected, [string]$Message) {
     }
 }
 
-. (Join-Path (Resolve-Path 'launcher').Path 'Strata-Launcher-Environment.ps1')
+. (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'Strata-Launcher-Environment.ps1')
 
 $strataHealth = [pscustomobject]@{ service = 'strata'; status = 'ok' }
 Assert-Equal (Get-StrataMonitorUrl -Port 8080 -Health $strataHealth) 'http://127.0.0.1:8080/#monitor' 'the default port opens the official Monitor tab'

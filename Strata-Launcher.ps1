@@ -643,10 +643,12 @@ $officialUpdate=[Windows.Forms.Button]::new(); $officialUpdate.Text='官方更�
 $backupSettings=[Windows.Forms.Button]::new(); $backupSettings.Text='立即备份设置'; $backupSettings.Dock='Fill'; $backupSettings.Height=29; $backupSettings.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $refreshModels=[Windows.Forms.Button]::new(); $refreshModels.Text='刷新模型列表'; $refreshModels.Dock='Fill'; $refreshModels.Height=29; $refreshModels.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $officialMonitor=[Windows.Forms.Button]::new(); $officialMonitor.Text='官方实时监控'; $officialMonitor.Dock='Fill'; $officialMonitor.Height=31; $officialMonitor.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
+$monitorOverlay=[Windows.Forms.Button]::new(); $monitorOverlay.Text='悬浮监控'; $monitorOverlay.Dock='Fill'; $monitorOverlay.Height=31; $monitorOverlay.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 $benchmark=[Windows.Forms.Button]::new(); $benchmark.Text='批量 Benchmark 与对比报告'; $benchmark.Dock='Fill'; $benchmark.Height=31; $benchmark.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 [void]$officialToolsLayout.Controls.Add($officialImport,0,1); [void]$officialToolsLayout.Controls.Add($officialStart,1,1); [void]$officialToolsLayout.Controls.Add($officialCheck,2,1)
 [void]$officialToolsLayout.Controls.Add($officialUpdate,0,2); [void]$officialToolsLayout.Controls.Add($backupSettings,1,2); [void]$officialToolsLayout.Controls.Add($refreshModels,2,2)
-[void]$officialToolsLayout.Controls.Add($officialMonitor,0,3); $officialToolsLayout.SetColumnSpan($officialMonitor,3)
+[void]$officialToolsLayout.Controls.Add($officialMonitor,0,3); $officialToolsLayout.SetColumnSpan($officialMonitor,2)
+[void]$officialToolsLayout.Controls.Add($monitorOverlay,2,3)
 [void]$officialToolsLayout.Controls.Add($benchmark,0,4); $officialToolsLayout.SetColumnSpan($benchmark,3)
 $officialToolsGroup.Controls.Add($officialToolsLayout)
 $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new([Windows.Forms.SizeType]::AutoSize)); [void]$layout.Controls.Add($officialToolsGroup,0,$row); $layout.SetColumnSpan($officialToolsGroup,3); $row++
@@ -884,6 +886,18 @@ $officialMonitor.Add_Click({
         Start-Process -FilePath $url | Out-Null
         $status.Text="已在默认浏览器打开官方实时监控：$url"
     } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'官方实时监控打开失败','OK','Error') | Out-Null }
+})
+$monitorOverlay.Add_Click({
+    try {
+        $overlayPath=Join-Path $LauncherDir 'Strata-Monitor-Overlay.ps1'
+        if(-not (Test-Path -LiteralPath $overlayPath -PathType Leaf)){throw '找不到 Strata-Monitor-Overlay.ps1。'}
+        $p=[int]$port.Value
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"'+$overlayPath+'"'),
+            '-StrataRoot',('"'+$Root+'"'),'-Port',[string]$p
+        ) -WorkingDirectory $LauncherDir -WindowStyle Hidden | Out-Null
+        $status.Text="已打开悬浮监控；服务未运行时会等待，鼠标穿透可从托盘解除。端口：$p"
+    } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'悬浮监控打开失败','OK','Error') | Out-Null }
 })
 $benchmark.Add_Click({
     try {

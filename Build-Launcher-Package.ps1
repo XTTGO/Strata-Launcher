@@ -26,6 +26,8 @@ $topLevelFiles = @(
     'Strata-Launcher-Lan.ps1',
     'Strata-Launcher-LanFirewall.ps1',
     'Strata-Launcher-Update.ps1',
+    'Strata-Monitor-Overlay.ps1',
+    'Strata-Monitor-Snapshot.py',
     'Build-Launcher-Package.ps1',
     'Strata-Launcher-Reload.ps1',
     'Strata-Launcher-Settings.ps1',
