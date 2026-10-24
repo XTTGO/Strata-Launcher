@@ -551,9 +551,10 @@ foreach($card in $gpuPlacementCards){
     $roleControl.Tag=$cardSupported
     $gpuPlacementSelectors[[int]$card.Index]=$roleControl
     $memoryGiB=[Math]::Round([double]$card.MemoryMiB/1024,1)
+    $busLabel=([string]$card.BusId) -replace '^0+:',''
     $cardHint="$($card.Name) · $memoryGiB GiB · PCI $($card.BusId)"
     if(-not $cardSupported){$cardHint+=' · 当前 CUDA 引擎不支持'}
-    Add-Row $layout $row "GPU $($card.Index)" $roleControl $cardHint
+    Add-Row $layout $row "GPU $($card.Index) · PCI $busLabel" $roleControl $cardHint
 }
 $gpuPlacementEdit.Add_CheckedChanged({foreach($selector in $gpuPlacementSelectors.Values){$selector.Enabled=($gpuPlacementEdit.Checked -and [bool]$selector.Tag)}})
 $port = Make-Num ([string]$cfg.port) 1024 65535 1; Add-Row $layout $row '服务端口' $port '默认 8080；监听范围由下方局域网开关决定'
