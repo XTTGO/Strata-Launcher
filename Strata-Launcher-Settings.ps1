@@ -285,3 +285,68 @@ function Connect-StrataUsagePresetControls {
     $Controls.seed.Add_TextChanged($sync)
     & $sync
 }
+
+function Test-StrataDeepSeekConfig {
+    param($Config)
+    if (-not $Config) { return $false }
+    if ([string]$Config.arch -eq 'deepseek41') { return $true }
+    return ([string]$Config.exe) -match 'strata-dsv41|engine-dsv41'
+}
+
+function Remove-StrataArgPair {
+    param([Collections.ArrayList]$List, [string]$Flag)
+    for ($i = $List.Count - 1; $i -ge 0; $i--) {
+        if ([string]$List[$i] -ne $Flag) { continue }
+        $List.RemoveAt($i)
+        if ($i -lt $List.Count -and -not ([string]$List[$i]).StartsWith('--')) { $List.RemoveAt($i) }
+    }
+}
+
+function Set-StrataArgPair {
+    param([Collections.ArrayList]$List, [string]$Flag, $Value)
+    Remove-StrataArgPair -List $List -Flag $Flag
+    $text = ([string]$Value).Trim()
+    if ($text) { [void]$List.Add($Flag); [void]$List.Add($text) }
+}
+
+function Get-StrataDeepSeekSettings {
+    param([string[]]$ArgsList)
+    $read = {
+        param([string]$Flag, [string]$Fallback)
+        $value = ''
+        $items = @($ArgsList)
+        for ($i = 0; $i -lt $items.Count - 1; $i++) {
+            if ([string]$items[$i] -eq $Flag) { $value = [string]$items[$i + 1] }
+        }
+        if ($value) { $value } else { $Fallback }
+    }
+    [pscustomobject]@{
+        Context      = [long](& $read '--max-context' '8192')
+        ReserveMib   = [string](& $read '--reserve-mib' '')
+        CpuThreads   = [string](& $read '--cpu-threads' '')
+        Dspark       = [string](& $read '--dspark' 'auto')
+        DsparkConf   = [string](& $read '--dspark-conf' '0.65')
+        SsdCache     = [string](& $read '--ssd-cache' '')
+        PrefillChunk = [string](& $read '--prefill-chunk' '')
+    }
+}
+
+function Set-StrataDeepSeekArgs {
+    param([Collections.ArrayList]$List, $Settings)
+    # The dsv41 engine has its own flags and treats an unknown one as a fatal error: drop the Qwen-only
+    # flags the launcher writes for its engine before any DeepSeek value is saved.
+    foreach ($flag in @('--kv','--kv-resident','--vram-reserve-mib','--pool-workers','--rope-scaling','--rope-scale')) {
+        Remove-StrataArgPair -List $List -Flag $flag
+    }
+    Remove-StrataArgPair -List $List -Flag '--vision'
+    Set-StrataArgPair -List $List -Flag '--max-context' -Value ([string]$Settings.Context)
+    Set-StrataArgPair -List $List -Flag '--reserve-mib' -Value $Settings.ReserveMib
+    Set-StrataArgPair -List $List -Flag '--cpu-threads' -Value $Settings.CpuThreads
+    $dspark = ([string]$Settings.Dspark).ToLowerInvariant()
+    if ($dspark -notin @('auto','on','off')) { $dspark = 'auto' }
+    Set-StrataArgPair -List $List -Flag '--dspark' -Value $dspark
+    Set-StrataArgPair -List $List -Flag '--dspark-conf' -Value $Settings.DsparkConf
+    Set-StrataArgPair -List $List -Flag '--ssd-cache' -Value $Settings.SsdCache
+    Set-StrataArgPair -List $List -Flag '--prefill-chunk' -Value $Settings.PrefillChunk
+    return $List
+}

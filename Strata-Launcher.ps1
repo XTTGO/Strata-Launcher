@@ -219,6 +219,8 @@ $cfg = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Js
 $cfg.args = @(Get-StrataEffectiveArgs -Config $cfg)
 $initialEngineArgs = [string[]]@($cfg.args)
 $isOwnPath = Test-StrataOwnPathConfig -Config $cfg
+$isDeepSeek = Test-StrataDeepSeekConfig -Config $cfg
+$deepSeekSettings = if ($isDeepSeek) { Get-StrataDeepSeekSettings -ArgsList ([string[]]@($cfg.args)) } else { $null }
 $configStem=[IO.Path]::GetFileNameWithoutExtension($ConfigPath)
 $sharedPath = Join-Path $Root ($configStem + '.shared-settings.json')
 $shared = if (Test-Path -LiteralPath $sharedPath) { Get-Content -LiteralPath $sharedPath -Raw -Encoding UTF8 | ConvertFrom-Json } else { [pscustomobject]@{} }
@@ -500,6 +502,7 @@ $script:ContextItems=@(
     '1048576（1M，YaRN 4x，高级实验）'
 )
 if ($isOwnPath) { $script:ContextItems=@($script:ContextItems | Where-Object { (Context-Value $_) -le 262144 }) }
+if ($isDeepSeek) { $script:ContextItems=@('8192（8K，官方默认）','16384（16K，未验证）','32768（32K，未验证）','65536（64K，未验证）') }
 $modelLabels=@($modelConfigs | ForEach-Object { $_.Label })
 Add-Section 'model' 'MODEL & PRESET' '选择模型与常用使用方式'
 $modelSelector=Make-Combo $modelLabels ([string]$selectedConfig.Label)
@@ -534,18 +537,29 @@ Add-Section 'runtime' 'RUNTIME & MEMORY' '上下文、显存与服务运行参�
 $initialContext=[long](Arg-Value $cfg.args '--max-context' '131072')
 $initialContextItem=Context-Item $initialContext
 if ($script:ContextItems -notcontains $initialContextItem) { $script:ContextItems += $initialContextItem }
-$ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
-$kv = Make-Combo @('int8','q4_0','k8v4') ([string](Arg-Value $cfg.args '--kv' 'int8')); Add-Row $layout $row 'KV cache 格式' $kv '更省显存的格式可能影响速度/质量'
-$kvResident = Make-Combo @('8192','16384','32768','65536','关闭') ([string](Arg-Value $cfg.args '--kv-resident' '32768')); Add-Row $layout $row '驻留 KV token' $kvResident '窗口越大通常越占显存'
-$reserve = Make-Num ([string](Arg-Value $cfg.args '--vram-reserve-mib' '990')) 0 32768 128; Add-Row $layout $row '保留显存 MiB' $reserve '为桌面/视觉预留，越大留给模型越少'
-$poolWorkers = Make-Num ([string](Arg-Value $cfg.args '--pool-workers' '0')) 0 128 1; Add-Row $layout $row 'CPU 线程数' $poolWorkers '引擎的专家池 worker 数；0 = 自动（物理核心 − 1，上限 32）；超过核心数可能更慢'
-if ($isOwnPath) {
-    $kv.Enabled=$false; $kvResident.Enabled=$false; $reserve.Enabled=$false
-    $expertVram=[string](Arg-Value $cfg.args '--expert-vram' '自动'); if($expertVram -ne '自动'){$expertVram+=' GiB'}
-    $nativeInfo=[Windows.Forms.Label]::new(); $nativeInfo.Text="MTP $(Arg-Value $cfg.args '--mtp' '默认') · Prefill $(Arg-Value $cfg.args '--prefill' '默认') · Expert VRAM $expertVram"; $nativeInfo.AutoSize=$true
-    Add-Row $layout $row '独立引擎参数' $nativeInfo '这些参数由官方 setup 管理；启动器保存时原样保留。'
+$ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方在 8192 上验证；更高上下文未验证，可能更慢或占更多内存'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
+if ($isDeepSeek) {
+    $dsReserve = Make-Num ([string]$deepSeekSettings.ReserveMib) 0 32768 128; Add-Row $layout $row '显存预留 MiB' $dsReserve '引擎的 --reserve-mib；0 = 自动（不写该参数）'
+    $dsThreads = Make-Num ([string]$deepSeekSettings.CpuThreads) 0 128 1; Add-Row $layout $row 'CPU 线程数' $dsThreads '引擎的 --cpu-threads；0 = 引擎自动'
+    $dsDspark = Make-Combo @('auto','on','off') ([string]$deepSeekSettings.Dspark); Add-Row $layout $row 'DSpark 草稿' $dsDspark 'auto：专家放不进显存时不加载草稿；off 仍会加载，官方不建议'
+    $dsConf = Make-Num ([string]$deepSeekSettings.DsparkConf) 0 1 0.05; Add-Row $layout $row 'DSpark 置信度' $dsConf '官方 IST-DAS 用 0.65；0 表示关闭草稿'
+    $dsSsd = [Windows.Forms.TextBox]::new(); $dsSsd.Text=[string]$deepSeekSettings.SsdCache; Add-Row $layout $row 'SSD 专家缓存' $dsSsd '留空 = 引擎自动（auto）；也可填 GB 数字'
+    $dsPrefill = Make-Num ([string]$deepSeekSettings.PrefillChunk) 0 65536 256; Add-Row $layout $row '预填充分块' $dsPrefill '引擎的 --prefill-chunk；0 = 引擎自动'
+} else {
+    $kv = Make-Combo @('int8','q4_0','k8v4') ([string](Arg-Value $cfg.args '--kv' 'int8')); Add-Row $layout $row 'KV cache 格式' $kv '更省显存的格式可能影响速度/质量'
+    $kvResident = Make-Combo @('8192','16384','32768','65536','关闭') ([string](Arg-Value $cfg.args '--kv-resident' '32768')); Add-Row $layout $row '驻留 KV token' $kvResident '窗口越大通常越占显存'
+    $reserve = Make-Num ([string](Arg-Value $cfg.args '--vram-reserve-mib' '990')) 0 32768 128; Add-Row $layout $row '保留显存 MiB' $reserve '为桌面/视觉预留，越大留给模型越少'
+    $poolWorkers = Make-Num ([string](Arg-Value $cfg.args '--pool-workers' '0')) 0 128 1; Add-Row $layout $row 'CPU 线程数' $poolWorkers '引擎的专家池 worker 数；0 = 自动（物理核心 − 1，上限 32）；超过核心数可能更慢'
+    if ($isOwnPath) {
+        $kv.Enabled=$false; $kvResident.Enabled=$false; $reserve.Enabled=$false
+        $expertVram=[string](Arg-Value $cfg.args '--expert-vram' '自动'); if($expertVram -ne '自动'){$expertVram+=' GiB'}
+        $nativeInfo=[Windows.Forms.Label]::new(); $nativeInfo.Text="MTP $(Arg-Value $cfg.args '--mtp' '默认') · Prefill $(Arg-Value $cfg.args '--prefill' '默认') · Expert VRAM $expertVram"; $nativeInfo.AutoSize=$true
+        Add-Row $layout $row '独立引擎参数' $nativeInfo '这些参数由官方 setup 管理；启动器保存时原样保留。'
+    }
 }
-$parallel = Make-Combo @('1','2','3','4') ([string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})); Add-Row $layout $row '并行请求数' $parallel '并发会增加显存和内存占用'
+$parallelHint=if($isDeepSeek){'DeepSeek 引擎暂不支持并发请求；官方会忽略 --parallel'}else{'并发会增加显存和内存占用'}
+$parallel = Make-Combo @('1','2','3','4') ([string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})); Add-Row $layout $row '并行请求数' $parallel $parallelHint
+if ($isDeepSeek) { $parallel.Enabled=$false; $parallel.SelectedItem='1' }
 Add-Section 'gpu_placement' 'GPU PLACEMENT · NVIDIA' '为当前模型指定 Main / Helper / Off；多卡按模型层分工'
 $gpuPlacementCards=@(Get-StrataNvidiaPlacementCards)
 $gpuPlacementBuild=$null
@@ -554,8 +568,8 @@ try {
     if (Test-Path -LiteralPath $buildPath -PathType Leaf) { $gpuPlacementBuild=Get-Content -LiteralPath $buildPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 } catch { $gpuPlacementBuild=$null }
 $canEditGpuPlacement=Test-StrataCudaPlacementBuild -Build $gpuPlacementBuild -Cards $gpuPlacementCards
-$gpuPlacementEdit=[Windows.Forms.CheckBox]::new(); $gpuPlacementEdit.Text='修改当前模型的推理显卡分配'; $gpuPlacementEdit.Enabled=$canEditGpuPlacement
-$gpuPlacementHint=if($canEditGpuPlacement){'未勾选时保留模型原有 GPU 配置；勾选后选择每张卡的角色，保存或启动时生效。'}else{'未检测到与当前 CUDA 引擎兼容的 NVIDIA 显卡；原有 GPU 配置保持不变。'}
+$gpuPlacementEdit=[Windows.Forms.CheckBox]::new(); $gpuPlacementEdit.Text='修改当前模型的推理显卡分配'; $gpuPlacementEdit.Enabled=($canEditGpuPlacement -and -not $isDeepSeek)
+$gpuPlacementHint=if($isDeepSeek){'DeepSeek 引擎自行安排专家分层；显卡列表由官方 setup 写入，启动器不改动。'}elseif($canEditGpuPlacement){'未勾选时保留模型原有 GPU 配置；勾选后选择每张卡的角色，保存或启动时生效。'}else{'未检测到与当前 CUDA 引擎兼容的 NVIDIA 显卡；原有 GPU 配置保持不变。'}
 Add-Row $layout $row '推理显卡' $gpuPlacementEdit $gpuPlacementHint
 $gpuPlacementSelectors=@{}
 $gpuPlacementRoles=@(Get-StrataGpuPlacementRoles -Config $cfg -Cards $gpuPlacementCards)
@@ -622,7 +636,7 @@ $updateLanAddress = {
 $port.Add_ValueChanged($updateLanAddress)
 $lanAccess.Add_CheckedChanged({ $lanKeyCopy.Enabled=$lanAccess.Checked; $lanFirewallAdd.Enabled=$lanAccess.Checked })
 $vision = [Windows.Forms.CheckBox]::new(); $vision.Text='启用图像输入'; $vision.Checked=($null -ne $cfg.vision); Add-Row $layout $row '视觉' $vision '首次启用时查找已安装的视觉组件；关闭时保留视觉配置供以后恢复'
-if ($isOwnPath) { $vision.Enabled=$false; $vision.Checked=$false }
+if ($isOwnPath -or $isDeepSeek) { $vision.Enabled=$false; $vision.Checked=$false }
 $sharedDefaults = [Windows.Forms.CheckBox]::new(); $sharedDefaults.Text='保存为外部 API 客户端默认值'; $sharedDefaults.Checked=$true; Add-Row $layout $row 'API 默认参数' $sharedDefaults '请求未显式传参时生效；Agent 自己传的参数优先'
 $openBrowser = [Windows.Forms.CheckBox]::new(); $openBrowser.Text='服务就绪后打开本机网页'; $openBrowser.Checked=$true; Add-Row $layout $row '启动后' $openBrowser ''
 
@@ -990,7 +1004,21 @@ function Save-Settings {
     $new = Json-Clone $cfg
     $a = [Collections.ArrayList]::new(); foreach ($item in $new.args) { [void]$a.Add([string]$item) }
     $contextValue=Context-Value $ctx.SelectedItem
-    if ($isOwnPath) {
+    if ($isDeepSeek) {
+        # dsv41 rejects unknown flags, so save only its own arguments and keep the official ones as they are.
+        $deepSeekSave=[pscustomobject]@{
+            Context      = $contextValue
+            ReserveMib   = $(if ([decimal]$dsReserve.Value -gt 0) { NText $dsReserve } else { '' })
+            CpuThreads   = $(if ([decimal]$dsThreads.Value -gt 0) { NText $dsThreads } else { '' })
+            Dspark       = [string]$dsDspark.SelectedItem
+            DsparkConf   = NText $dsConf
+            SsdCache     = $dsSsd.Text.Trim()
+            PrefillChunk = $(if ([decimal]$dsPrefill.Value -gt 0) { NText $dsPrefill } else { '' })
+        }
+        Set-StrataDeepSeekArgs -List $a -Settings $deepSeekSave | Out-Null
+        if ($new.vision) { Atomic-Json $visionPath $new.vision; $new.PSObject.Properties.Remove('vision') }
+        $new.PSObject.Properties.Remove('parallel')
+    } elseif ($isOwnPath) {
         $a = [Collections.ArrayList]::new()
         foreach ($item in (Set-StrataNativeContextArgs -ArgsList @($new.args) -MaxContext $contextValue)) { [void]$a.Add([string]$item) }
     } else {
@@ -1013,9 +1041,9 @@ function Save-Settings {
         if ($new.vision) { Atomic-Json $visionPath $new.vision; $new.PSObject.Properties.Remove('vision') }
         while ($a.Contains('--vision')) { $a.Remove('--vision') }
     }
-    }
     $poolValue=[int]$poolWorkers.Value
     Set-Arg $a '--pool-workers' $(if ($poolValue -gt 0) { [string]$poolValue } else { $null })
+    }
     $new.args = @($a); $new.port = [int]$port.Value
     Sync-StrataUserArgsForSave -Config $new -OriginalArgs $initialEngineArgs
     if($gpuPlacementEdit.Checked){
