@@ -1,7 +1,20 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前开发版本为 `0.1.7.5-dev.5`（未发布），以 `0.1.7.4` 为最后正式版；针对本机 Strata `v0.2.4` 源码安装版校验。
+启动器版本独立于 Strata 官方版本。当前版本为 `0.1.7.5`；针对本机 Strata `v0.2.4.2` 源码安装版校验，Qwen 引擎 `0.1.48`，DeepSeek 引擎 `0.1.49.2`。
 
+## 0.1.7.5 — 2026-10-24
+
+- 完整适配 DeepSeek-V4.1-Flash（`deepseek41`，独立引擎 `strata-dsv41`），与 Qwen 模型共用同一个启动器，按当前模型自动切换规则：
+  - 双引擎识别（`arch` 或 `engine-dsv41` 路径）；环境检查允许“只有 DeepSeek 引擎”的安装；主界面版本行显示所选模型的引擎。
+  - 导入预检识别多文件分片与共享文件；运行参数只写 dsv41 支持的项（`--reserve-mib`、`--cpu-threads`、`--dspark`、`--dspark-conf`、`--ssd-cache`、`--prefill-chunk`、`--tp`），剔除 Qwen 专用参数。
+  - 多卡：选择参与推理的显卡（写配置 `gpu`）与 `--tp`，不写 Qwen 的 `gpu_roles`/`layer_split`。
+  - 上下文：8K（官方默认）/16K/32K/64K 原生/128K–1M（YaRN ×2–×16，更大的均标未验证）。
+  - 停止服务同时识别 `engine\strata.exe` 与 `engine-dsv41\<版本>\strata-dsv41.exe`。
+  - 原“性能校准”对 DeepSeek 变为「官方调优」（`tools/dsv41/tune.py`）；新增「规划预测」（`strata launch --plan`，只读）。
+  - DeepSeek 下禁用 Qwen 口径的批量 Benchmark、视觉、并行请求，并写明原因。
+- 官方更新：无上游分支时也会采用带发布说明的最新官方标签（例如 v0.2.4.2），不再被“Release 页面仍是 v0.2.4”卡住。
+- 模型标签显示 `DeepSeek-V4.1-Flash`，多套时自动加配置名后缀。
+- 验证：139 个 Python 测试与 37 个 PowerShell 测试通过；本机 Strata `v0.2.4.2` / 引擎 `0.1.48` / DeepSeek 引擎 `0.1.49.2`；DeepSeek 官方导入与 16 token 冒烟测试通过。**启动器内的完整加载、长对话与停止仍未做完整验收。**
 ## 0.1.7.5-dev.5 — 2026-10-24（未发布）
 
 - 按“从功能到引擎”完整审核后的修正：
