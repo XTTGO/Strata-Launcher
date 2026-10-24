@@ -69,7 +69,7 @@ launcher\Strata-Launcher.bat
 
 GPU PLACEMENT 区域列出当前 CUDA 引擎可用的 NVIDIA 显卡。未勾选“修改当前模型的推理显卡分配”时，保存生成参数不会改动模型配置中的选卡字段。要让一个模型跨多卡运行，勾选后给一张卡设 Main，其余参与分层的卡设 Helper，不参与的卡设 Off；保存或启动时写入当前模型的 strata-*.json。Main 是模型分层的最后一段，多卡默认由 Strata 自动分层。已有手工分层值在重新选卡后会改为自动分层；切回单卡时会清除分层值。
 
-界面以 GPU 编号和 PCI bus ID 区分同型号显卡；保存前会再次核对显卡编号、UUID、PCI bus ID、CUDA 引擎及所选角色。显卡或硬件拓扑发生变化时，请重新打开启动器；不兼容的卡只能保持 Off。多卡并不保证比单卡更快，且每张卡都需要自己的运行缓冲区。此功能只管理一个模型跨卡运行；GPU POWER 是独立的系统级功率设置，不会随选卡自动更改。官方说明：https://github.com/Niko1221/Strata/blob/main/docs/MULTI_GPU.md 。
+界面保留 Strata 使用的 GPU 编号，并把 PCI 地址转换为 Windows 设备管理器常见的十进制“PCI 总线、设备、功能”格式，便于区分同型号显卡。保存前会再次核对显卡编号、UUID、原始 PCI bus ID、CUDA 引擎及所选角色。显卡或硬件拓扑发生变化时，请重新打开启动器；不兼容的卡只能保持 Off。多卡并不保证比单卡更快，且每张卡都需要自己的运行缓冲区。此功能只管理一个模型跨卡运行；GPU POWER 是独立的系统级功率设置，不会随选卡自动更改。官方说明：https://github.com/Niko1221/Strata/blob/main/docs/MULTI_GPU.md 。
 
 显卡功率上限（NVIDIA）
 ---------------------

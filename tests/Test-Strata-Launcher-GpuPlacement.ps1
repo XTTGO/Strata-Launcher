@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\Strata-Launcher-GpuPlacement.ps1')
 
 function Assert-Equal($Actual, $Expected, [string]$Message) {
@@ -20,6 +20,13 @@ Assert-Equal $cards[1].Index 1 'GPU index should be parsed'
 Assert-Equal $cards[1].MemoryMiB 24576 'VRAM should be parsed'
 Assert-Equal $cards[1].ComputeCapability 8.6 'compute capability should be parsed'
 Assert-Equal $cards[1].BusId '00000000:0B:00.0' 'PCI bus should be parsed'
+
+$windowsLocation = Convert-StrataGpuPciBusIdToWindowsLocation '00000000:21:00.0'
+Assert-Equal $windowsLocation.Text 'PCI 总线 33、设备 0、功能 0' 'PCI location should use Windows decimal values'
+Assert-Equal $windowsLocation.Bus 33 'hexadecimal bus 21 should become decimal 33'
+Assert-Equal (Convert-StrataGpuPciBusIdToWindowsLocation '00000000:4B:00.0').Text 'PCI 总线 75、设备 0、功能 0' 'second GPU bus should use decimal 75'
+Assert-Equal (Convert-StrataGpuPciBusIdToWindowsLocation '00000001:4B:02.1').Text 'PCI 段 1、总线 75、设备 2、功能 1' 'nonzero PCI segment should remain visible'
+if ($null -ne (Convert-StrataGpuPciBusIdToWindowsLocation 'invalid')) { throw 'FAIL: malformed PCI address was formatted' }
 
 $build = [pscustomobject]@{ cuda = '13.0'; archs = @(75,86,89,120); ptx = $true }
 if (-not (Test-StrataCudaPlacementBuild -Build $build -Cards $cards)) { throw 'FAIL: installed CUDA engine should accept RTX 3090s' }

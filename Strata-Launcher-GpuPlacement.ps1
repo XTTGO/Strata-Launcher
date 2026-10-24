@@ -20,6 +20,24 @@ function Convert-StrataGpuPlacementCsv([string]$Text) {
     }
 }
 
+function Convert-StrataGpuPciBusIdToWindowsLocation([string]$BusId) {
+    if ($BusId -notmatch '^(?<segment>[0-9A-Fa-f]{4,8}):(?<bus>[0-9A-Fa-f]{2}):(?<device>[0-9A-Fa-f]{2})\.(?<function>[0-7])$') {
+        return $null
+    }
+    $segment = [Convert]::ToUInt32($Matches['segment'],16)
+    $bus = [Convert]::ToInt32($Matches['bus'],16)
+    $device = [Convert]::ToInt32($Matches['device'],16)
+    $function = [Convert]::ToInt32($Matches['function'],16)
+    $text = if ($segment -eq 0) {
+        "PCI 总线 $bus、设备 $device、功能 $function"
+    } else {
+        "PCI 段 $segment、总线 $bus、设备 $device、功能 $function"
+    }
+    [pscustomobject]@{
+        Segment=$segment; Bus=$bus; Device=$device; Function=$function; Text=$text
+    }
+}
+
 function Get-StrataNvidiaPlacementCards {
     $command = Get-Command 'nvidia-smi.exe' -ErrorAction SilentlyContinue
     if (-not $command) { return @() }
