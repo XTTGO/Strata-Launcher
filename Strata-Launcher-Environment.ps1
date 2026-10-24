@@ -353,6 +353,22 @@ function Get-StrataModelLabel {
     return $ModelName
 }
 
+function Get-StrataNewestReleaseTag {
+    param([string]$ReleaseTag, [string[]]$Tags, [scriptblock]$HasNotes)
+    $base = $null
+    if ($ReleaseTag -match '^v(\d+(?:\.\d+)+)$') { $base = [version]$Matches[1] }
+    $best = $null
+    foreach ($tag in @($Tags)) {
+        if ($tag -notmatch '^v(\d+(?:\.\d+)+)$') { continue }
+        $version = [version]$Matches[1]
+        if ($base -and $version -le $base) { continue }
+        if ($HasNotes -and -not (& $HasNotes $tag)) { continue }
+        if (-not $best -or $version -gt $best.Version) {
+            $best = [pscustomobject]@{ Tag = $tag; Version = $version }
+        }
+    }
+    return $best
+}
 function Resolve-StrataModelLabelCollisions {
     param([object[]]$ModelConfigs)
 

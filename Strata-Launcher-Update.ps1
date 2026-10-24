@@ -66,14 +66,27 @@ function Update-Source {
         $request.Timeout = 30000
         $response = $request.GetResponse()
         try { $releaseUrl = $response.ResponseUri.AbsoluteUri } finally { $response.Close() }
-        if ($releaseUrl -notmatch '^https://github\.com/Niko1221/Strata/releases/tag/(v\d+\.\d+\.\d+)$') {
+        if ($releaseUrl -notmatch '^https://github\.com/Niko1221/Strata/releases/tag/(v\d+(?:\.\d+)+)$') {
             throw "无法从官方最新稳定 Release 链接读取版本：$releaseUrl"
         }
         $ReleaseTag = $Matches[1]
     }
-    if ($ReleaseTag -notmatch '^v\d+\.\d+\.\d+$') { throw "无效的稳定 Release 标签：$ReleaseTag" }
+    if ($ReleaseTag -notmatch '^v\d+(?:\.\d+)+$') { throw "无效的稳定 Release 标签：$ReleaseTag" }
     Write-Host "当前分支 $($branch.Lines[0]) 没有上游；检查最新稳定 Release $ReleaseTag 的快进更新 ..."
     Invoke-GitChecked @('fetch', '--no-tags', 'origin', 'tag', $ReleaseTag) '获取 Strata 稳定版'
+    # Official patch releases (0.2.4.1, 0.2.4.2, ...) are tags with committed release notes; the GitHub
+    # "latest release" page may still point at the older three-part release, so take the newest tag that
+    # carries docs/release-notes-<version>.md as well.
+    $tagFetch = Get-GitOutput @('fetch', '--tags', '--force', 'origin')
+    if ($tagFetch.Code -eq 0) {
+        $hasNotes = { param($tag) (Get-GitOutput @('cat-file', '-e', ($tag + ':docs/release-notes-' + $tag.Substring(1) + '.md'))).Code -eq 0 }
+        $newer = Get-StrataNewestReleaseTag -ReleaseTag $ReleaseTag -Tags @((Get-GitOutput @('tag', '--list', 'v*')).Lines) -HasNotes $hasNotes
+        if ($newer) {
+            Write-Host "官方标签 $($newer.Tag) 比 Release 页面（$ReleaseTag）新，且带有发布说明；按该标签更新。"
+            $ReleaseTag = $newer.Tag
+            Invoke-GitChecked @('fetch', '--no-tags', 'origin', 'tag', $ReleaseTag) '获取 Strata 稳定版'
+        }
+    }
     $ancestor = Get-GitOutput @('merge-base', '--is-ancestor', 'HEAD', $ReleaseTag)
     if ($ancestor.Code -eq 1) {
         throw "当前分支不能快进到 $ReleaseTag；请先处理分支差异，启动器不会合并或重置。"

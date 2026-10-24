@@ -156,6 +156,7 @@ $expectedModelCount = @(Get-ChildItem -LiteralPath $root -Filter 'strata-*.json'
     if ($_.Name -like '*.shared-settings.json') { return $false }
     try {
         $config = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ([string]$config.arch -eq 'deepseek41' -or ([string]$config.exe) -match 'strata-dsv41|engine-dsv41') { return $false }
         return [bool]($config.exe -and $config.args -is [array] -and $config.model_name)
     } catch { return $false }
 }).Count
