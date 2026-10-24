@@ -57,6 +57,12 @@ if (-not (Test-Path -LiteralPath $GpuPowerModule -PathType Leaf)) {
     exit 2
 }
 . $GpuPowerModule
+$GpuPlacementModule = Join-Path $LauncherDir 'Strata-Launcher-GpuPlacement.ps1'
+if (-not (Test-Path -LiteralPath $GpuPlacementModule -PathType Leaf)) {
+    [Windows.Forms.MessageBox]::Show("启动器文件不完整，缺少：$GpuPlacementModule",'Strata 启动器无法启动','OK','Error') | Out-Null
+    exit 2
+}
+. $GpuPlacementModule
 $LanModule = Join-Path $LauncherDir 'Strata-Launcher-Lan.ps1'
 if (-not (Test-Path -LiteralPath $LanModule -PathType Leaf)) {
     [Windows.Forms.MessageBox]::Show("启动器文件不完整，缺少：$LanModule",'Strata 启动器无法启动','OK','Error') | Out-Null
@@ -520,6 +526,36 @@ if ($isOwnPath) {
     Add-Row $layout $row '独立引擎参数' $nativeInfo '这些参数由官方 setup 管理；启动器保存时原样保留。'
 }
 $parallel = Make-Combo @('1','2','3','4') ([string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})); Add-Row $layout $row '并行请求数' $parallel '并发会增加显存和内存占用'
+$section = New-StrataSectionHeader -Title 'GPU PLACEMENT · NVIDIA' -Subtitle '为当前模型指定 Main / Helper / Off；多卡按模型层分工' -Theme $theme
+$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+$gpuPlacementCards=@(Get-StrataNvidiaPlacementCards)
+$gpuPlacementBuild=$null
+try {
+    $buildPath=Join-Path $Root 'engine\BUILD.json'
+    if (Test-Path -LiteralPath $buildPath -PathType Leaf) { $gpuPlacementBuild=Get-Content -LiteralPath $buildPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+} catch { $gpuPlacementBuild=$null }
+$canEditGpuPlacement=Test-StrataCudaPlacementBuild -Build $gpuPlacementBuild -Cards $gpuPlacementCards
+$gpuPlacementEdit=[Windows.Forms.CheckBox]::new(); $gpuPlacementEdit.Text='修改当前模型的推理显卡分配'; $gpuPlacementEdit.Enabled=$canEditGpuPlacement
+$gpuPlacementHint=if($canEditGpuPlacement){'未勾选时保留模型原有 GPU 配置；勾选后选择每张卡的角色，保存或启动时生效。'}else{'未检测到与当前 CUDA 引擎兼容的 NVIDIA 显卡；原有 GPU 配置保持不变。'}
+Add-Row $layout $row '推理显卡' $gpuPlacementEdit $gpuPlacementHint
+$gpuPlacementSelectors=@{}
+$gpuPlacementRoles=@(Get-StrataGpuPlacementRoles -Config $cfg -Cards $gpuPlacementCards)
+foreach($card in $gpuPlacementCards){
+    $role=@($gpuPlacementRoles | Where-Object Index -EQ $card.Index | Select-Object -First 1)
+    $selectedRole=if($role.Count){[string]$role[0].Role}else{'off'}
+    if($selectedRole -notin @('main','helper','off')){$selectedRole='off'}
+    $cardSupported=Test-StrataCudaPlacementCard -Build $gpuPlacementBuild -Card $card
+    if(-not $cardSupported){$selectedRole='off'}
+    $roleControl=Make-Combo $(if($cardSupported){@('Off','Helper','Main')}else{@('Off')}) ($selectedRole.Substring(0,1).ToUpperInvariant()+$selectedRole.Substring(1))
+    $roleControl.Enabled=$false
+    $roleControl.Tag=$cardSupported
+    $gpuPlacementSelectors[[int]$card.Index]=$roleControl
+    $memoryGiB=[Math]::Round([double]$card.MemoryMiB/1024,1)
+    $cardHint="$($card.Name) · $memoryGiB GiB · PCI $($card.BusId)"
+    if(-not $cardSupported){$cardHint+=' · 当前 CUDA 引擎不支持'}
+    Add-Row $layout $row "GPU $($card.Index)" $roleControl $cardHint
+}
+$gpuPlacementEdit.Add_CheckedChanged({foreach($selector in $gpuPlacementSelectors.Values){$selector.Enabled=($gpuPlacementEdit.Checked -and [bool]$selector.Tag)}})
 $port = Make-Num ([string]$cfg.port) 1024 65535 1; Add-Row $layout $row '服务端口' $port '默认 8080；监听范围由下方局域网开关决定'
 $lanAccess = [Windows.Forms.CheckBox]::new(); $lanAccess.Text='LAN access：允许局域网设备访问'; $lanAccess.Checked=(Get-StrataLanMode $LanModePath)
 Add-Row $layout $row '局域网访问' $lanAccess '默认关闭；下次由启动器启动时生效，必须使用 API key。不要做公网端口转发。'
@@ -888,6 +924,13 @@ function Save-Settings {
     Set-Arg $a '--pool-workers' $(if ($poolValue -gt 0) { [string]$poolValue } else { $null })
     $new.args = @($a); $new.port = [int]$port.Value
     Sync-StrataUserArgsForSave -Config $new -OriginalArgs $initialEngineArgs
+    if($gpuPlacementEdit.Checked){
+        $selectedRoles=@{}
+        foreach($card in $gpuPlacementCards){$selectedRoles[[int]$card.Index]=([string]$gpuPlacementSelectors[[int]$card.Index].SelectedItem).ToLowerInvariant()}
+        $new=Set-StrataGpuPlacementConfig -Config $new -Cards $gpuPlacementCards -CurrentCards @(Get-StrataNvidiaPlacementCards) -Roles $selectedRoles -Build $gpuPlacementBuild
+    } else {
+        if($new.PSObject.Properties['gpu_cards']){Assert-StrataGpuPlacementIdentity -Config $new -Cards @(Get-StrataNvidiaPlacementCards)}
+    }
     if ([int]$parallel.SelectedItem -le 1) { $new.PSObject.Properties.Remove('parallel') } else { $new | Add-Member -NotePropertyName parallel -NotePropertyValue ([int]$parallel.SelectedItem) -Force }
     $sampling = [pscustomobject]@{ temperature=[double](NText $temp); top_p=[double](NText $topP); top_k=[int]$topK.Value; min_p=[double](NText $minP); presence_penalty=[double](NText $presence); repetition_penalty=[double](NText $repeat); frequency_penalty=[double](NText $freq); penalty_last_n=[int]$lastN.Value }
     $new | Add-Member -NotePropertyName sampling -NotePropertyValue (Merge-StrataSampling -Existing $new.sampling -Edited $sampling -SeedText $seedText.Text) -Force

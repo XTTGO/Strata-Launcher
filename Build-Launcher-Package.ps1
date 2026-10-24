@@ -22,6 +22,7 @@ $topLevelFiles = @(
     'Strata-Launcher-Environment.ps1',
     'Strata-Launcher-Theme.ps1',
     'Strata-Launcher-GpuPower.ps1',
+    'Strata-Launcher-GpuPlacement.ps1',
     'Strata-Launcher-Lan.ps1',
     'Strata-Launcher-LanFirewall.ps1',
     'Strata-Launcher-Update.ps1',

@@ -4,7 +4,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "FAIL: $Message" }
 }
 
-$launcherRoot = (Resolve-Path 'launcher').Path
+$launcherRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $builder = Join-Path $launcherRoot 'Build-Launcher-Package.ps1'
 $version = (Get-Content -LiteralPath (Join-Path $launcherRoot 'VERSION.txt') -Raw -Encoding UTF8).Trim()
 $probeBase = Join-Path ([IO.Path]::GetTempPath()) ('strata launcher package ' + [Guid]::NewGuid().ToString('N'))
@@ -26,6 +26,7 @@ try {
         'Strata-Launcher-Settings.ps1',
         'Strata-Launcher-Theme.ps1',
         'Strata-Launcher-GpuPower.ps1',
+        'Strata-Launcher-GpuPlacement.ps1',
         'Strata-Launcher-Lan.ps1',
         'Strata-Launcher-LanFirewall.ps1',
         'Strata-Launcher-Update.ps1',

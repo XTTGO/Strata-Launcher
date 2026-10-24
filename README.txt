@@ -1,7 +1,7 @@
 Strata 辅助启动器（适用于已经安装好 Strata 的 Windows 用户）
 ===========================================================
 
-启动器版本：0.1.6（独立于 Strata 官方版本；针对 Strata v0.2.3 源码安装版完成更新与校验，引擎已更新至 0.1.48）。更新内容见 CHANGELOG.md。
+启动器版本：0.1.7-dev.1（开发分支；独立于 Strata 官方版本，基于 Strata v0.2.3 / 引擎 0.1.48）。更新内容与验证边界见 CHANGELOG.md。
 
 这套启动器独立维护，但运行时依赖已经安装完成的 Strata。它不是模型、引擎或 Python 环境的替代安装包。
 当前只支持通过 START-HERE.bat 从源码安装的 Windows 版 Strata；官方 App 和独立 Terminal 的目录及进程管理方式不同，不能把此包直接放进去使用。
@@ -42,6 +42,7 @@ launcher\Strata-Launcher.bat
 - Strata-Launcher-Environment.ps1：识别并检查接收者的 Strata 安装。
 - model_catalog.py：从接收者当前的 setup.py 提取支持模型和显示来源。
 - Strata-Launcher-GpuPower.ps1：可选的 NVIDIA 显卡功率上限与恢复逻辑。
+- Strata-Launcher-GpuPlacement.ps1：读取 CUDA 显卡并校验、写入单模型显卡角色。
 - Strata-Launcher-Lan.ps1、Strata-Launcher-LanFirewall.ps1：可选的局域网密钥和受限防火墙操作。
 - Strata-Launcher-Update.ps1：执行安全的源码快进与官方安装更新；旧安装流程跳过新版引擎时调用官方签名更新源，并核对最终版本。
 - Strata-Calibration-View.ps1：显示当前模型、上下文、视觉状态和完整校准结果。
@@ -62,6 +63,13 @@ launcher\Strata-Launcher.bat
 - reports\：Benchmark 报告、日志、配置快照和模型输出。
 
 这些目录属于当前电脑，不应随启动器再次分享。由 Build-Launcher-Package.ps1 生成的 ZIP 会自动排除它们以及测试、缓存和开发文档。
+
+推理显卡分配（NVIDIA CUDA）
+--------------------------
+
+GPU PLACEMENT 区域列出当前 CUDA 引擎可用的 NVIDIA 显卡。未勾选“修改当前模型的推理显卡分配”时，保存生成参数不会改动模型配置中的选卡字段。要让一个模型跨多卡运行，勾选后给一张卡设 Main，其余参与分层的卡设 Helper，不参与的卡设 Off；保存或启动时写入当前模型的 strata-*.json。Main 是模型分层的最后一段，多卡默认由 Strata 自动分层。已有手工分层值在重新选卡后会改为自动分层；切回单卡时会清除分层值。
+
+保存前会再次核对显卡编号和 UUID、CUDA 引擎及所选角色。显卡发生变化时，请重新打开启动器；不兼容的卡只能保持 Off。多卡并不保证比单卡更快，且每张卡都需要自己的运行缓冲区。此功能只管理一个模型跨卡运行；GPU POWER 是独立的系统级功率设置，不会随选卡自动更改。官方说明：https://github.com/Niko1221/Strata/blob/main/docs/MULTI_GPU.md 。
 
 显卡功率上限（NVIDIA）
 ---------------------
