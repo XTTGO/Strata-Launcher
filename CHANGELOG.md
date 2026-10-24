@@ -1,7 +1,14 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前开发版本为 `0.1.7.5-dev.2`（未发布），以 `0.1.7.4` 为最后正式版；针对本机 Strata `v0.2.4` 源码安装版校验。
+启动器版本独立于 Strata 官方版本。当前开发版本为 `0.1.7.5-dev.3`（未发布），以 `0.1.7.4` 为最后正式版；针对本机 Strata `v0.2.4` 源码安装版校验。
 
+## 0.1.7.5-dev.3 — 2026-10-24（未发布）
+
+- DeepSeek 的性能入口改用官方工具：原“保存并校准”按钮对 DeepSeek 变为「官方调优」，运行官方 `tools/dsv41/tune.py --config <配置> --mode quick`（与 `strata launch --tune quick` 同一条路径），结果写入当前配置。
+- 新增「规划预测」按钮：运行 `strata launch --model <规格> --family deepseek41 --data-dir <数据目录> --plan`，只读显示显卡/RAM 分配与预计速度（输出里明确 “Nothing was changed”）。
+- DeepSeek 下「批量 Benchmark」禁用并说明原因（Qwen 口径的上下文档位/Needle/并发不适用）。
+- 模型规格从配置文件名解析（`strata-deepseek-v4.1-flash-ist-das-2.00bpw.json` → `ist-das-2.00bpw`），并加入单元测试。
+- 验证：139 个 Python 测试、36 个 PowerShell 测试通过；用真实 DeepSeek 配置打开界面确认两个按钮与说明；`strata launch --plan` 实跑确认只读。
 ## 0.1.7.5-dev.2 — 2026-10-24（未发布）
 
 - 修正官方更新在“没有上游分支”时的判定：官方补丁版（0.2.4.1、0.2.4.2…）只有标签与发布说明，GitHub “latest release” 仍指向 0.2.4；启动器现在会在 Release 页面版本之后，再取带 `docs/release-notes-<版本>.md` 的最新官方标签并快进，避免“有新补丁却显示已是最新”。

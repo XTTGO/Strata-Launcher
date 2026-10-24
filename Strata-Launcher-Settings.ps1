@@ -287,6 +287,12 @@ function Connect-StrataUsagePresetControls {
     & $sync
 }
 
+function Get-StrataDeepSeekModelKey {
+    param([string]$ConfigPath)
+    $stem = [IO.Path]::GetFileNameWithoutExtension([string]$ConfigPath)
+    if ($stem -match '^strata-deepseek-v4\.1-flash-(.+)$') { return $Matches[1] }
+    return ''
+}
 function Test-StrataDeepSeekConfig {
     param($Config)
     if (-not $Config) { return $false }

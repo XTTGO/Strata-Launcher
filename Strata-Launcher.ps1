@@ -693,8 +693,12 @@ $calibrationState=[Windows.Forms.Label]::new(); $calibrationState.AutoSize=$true
 $calibrationDetails=[Windows.Forms.Label]::new(); $calibrationDetails.Tag='muted'; $calibrationDetails.AutoSize=$true; $calibrationDetails.Margin=[Windows.Forms.Padding]::new(4,2,8,5); $calibrationDetails.MaximumSize=[Drawing.Size]::new(610,0)
 $calibrate = [Windows.Forms.Button]::new(); $calibrate.Text='保存并校准'; $calibrate.Width=130; $calibrate.Height=30; $calibrate.Anchor='Right'
 if ($isOwnPath) { $calibrate.Enabled=$false; $calibrate.Text='独立引擎无需校准' }
-if ($isDeepSeek) { $calibrate.Enabled=$false; $calibrate.Text='DeepSeek 用官方调优' }
+if ($isDeepSeek) { $calibrate.Enabled=$true; $calibrate.Text='官方调优' }
 [void]$calibrationLayout.Controls.Add($calibrationState,0,0); [void]$calibrationLayout.Controls.Add($calibrationDetails,0,1); [void]$calibrationLayout.Controls.Add($calibrate,1,0); $calibrationLayout.SetRowSpan($calibrate,2)
+if ($isDeepSeek) {
+    $planPredict = [Windows.Forms.Button]::new(); $planPredict.Text='规划预测'; $planPredict.Width=130; $planPredict.Height=30; $planPredict.Anchor='Right'
+    [void]$calibrationLayout.Controls.Add($planPredict,1,1); $calibrationLayout.SetRowSpan($calibrate,1)
+}
 $calibrationGroup.Controls.Add($calibrationLayout)
 $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new([Windows.Forms.SizeType]::AutoSize)); [void]$layout.Controls.Add($calibrationGroup,0,$row); $layout.SetColumnSpan($calibrationGroup,3); $row++
 
@@ -712,6 +716,7 @@ $refreshModels=[Windows.Forms.Button]::new(); $refreshModels.Text='刷新模型�
 $officialMonitor=[Windows.Forms.Button]::new(); $officialMonitor.Text='官方实时监控'; $officialMonitor.Dock='Fill'; $officialMonitor.Height=31; $officialMonitor.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 $monitorOverlay=[Windows.Forms.Button]::new(); $monitorOverlay.Text='悬浮监控'; $monitorOverlay.Dock='Fill'; $monitorOverlay.Height=31; $monitorOverlay.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 $benchmark=[Windows.Forms.Button]::new(); $benchmark.Text='批量 Benchmark 与对比报告'; $benchmark.Dock='Fill'; $benchmark.Height=31; $benchmark.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
+if ($isDeepSeek) { $benchmark.Enabled=$false; $benchmark.Text='批量 Benchmark（DeepSeek 不适用，请用官方调优/规划预测）' }
 [void]$officialToolsLayout.Controls.Add($officialImport,0,1); [void]$officialToolsLayout.Controls.Add($officialStart,1,1); [void]$officialToolsLayout.Controls.Add($officialCheck,2,1)
 [void]$officialToolsLayout.Controls.Add($officialUpdate,0,2); [void]$officialToolsLayout.Controls.Add($backupSettings,1,2); [void]$officialToolsLayout.Controls.Add($refreshModels,2,2)
 [void]$officialToolsLayout.Controls.Add($officialMonitor,0,3); $officialToolsLayout.SetColumnSpan($officialMonitor,2)
@@ -724,8 +729,8 @@ $script:Sections[$script:Sections.Count - 1].LastRow = $row - 1
 function Refresh-CalibrationPanel {
     if ($isDeepSeek) {
         $calibrationGroup.Text='DeepSeek-V4.1-Flash'
-        $calibrationState.Text='用官方调优器，不在启动器校准'
-        $calibrationDetails.Text='官方提供 strata launch --tune（tools/dsv41/tune.py）；启动器只保存上面的运行参数。'
+        $calibrationState.Text='官方调优与规划预测'
+        $calibrationDetails.Text='“官方调优”运行 tools/dsv41/tune.py（quick）；“规划预测”运行 strata launch --plan，只读显示显卡/RAM 分配与预计速度。'
         return
     }
     if ($isOwnPath) {
@@ -1177,6 +1182,20 @@ $lanFirewallRemove.Add_Click({
 })
 $calibrate.Add_Click({
     try {
+        if ($isDeepSeek) {
+            $p=[int]$port.Value
+            if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 上的 Strata 正在运行。官方调优需要独占显卡，请先点击【停止 Strata】，再运行调优。",'无法调优','OK','Warning') | Out-Null; return }
+            [void](Save-Settings)
+            if (-not (Test-Path -LiteralPath $Py)) { throw '找不到 Strata 私有 Python 环境，无法运行官方调优。' }
+            $tuner=Join-Path $Root 'tools\dsv41\tune.py'
+            if (-not (Test-Path -LiteralPath $tuner -PathType Leaf)) { throw '找不到官方 DeepSeek 调优器 tools\dsv41\tune.py；请先运行官方更新。' }
+            $cmd='"' + $Py + '" "' + $tuner + '" --config "' + $ConfigPath + '" --mode quick'
+            Start-CmdCommand $cmd -KeepOpen
+            $status.Text='DeepSeek 官方调优已在独立窗口启动；通常需要 5–10 分钟。'
+            [Windows.Forms.MessageBox]::Show("已保存当前设置并启动官方 DeepSeek 调优（quick）。`r`n`r`n它会多次起停引擎、只保留收益超过 5% 的设置，结果写入当前配置。完成后关闭调优窗口，再重新打开启动器。",'官方调优','OK','Information') | Out-Null
+            $form.Close()
+            return
+        }
         $p=[int]$port.Value
         if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 上的 Strata 正在运行。性能校准需要独占显卡，请先点击【停止 Strata】，再运行校准。",'无法校准','OK','Warning') | Out-Null; return }
         [void](Save-Settings)
@@ -1190,6 +1209,25 @@ $calibrate.Add_Click({
         $form.Close()
     } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'校准启动失败','OK','Error') | Out-Null }
 })
+if ($isDeepSeek) {
+    $planPredict.Add_Click({
+        try {
+            $dataDir=''
+            if (Test-Path -LiteralPath $OfficialSettingsPath) {
+                try { $dataDir=[string]((Get-Content -LiteralPath $OfficialSettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json).data_dir) } catch { }
+            }
+            if (-not $dataDir) { $dataDir=$LauncherEnvironment.DefaultDataDirectory }
+            if (-not (Test-Path -LiteralPath $Py)) { throw '找不到 Strata 私有 Python 环境，无法运行官方规划预测。' }
+            $strataPy=Join-Path $Root 'strata.py'
+            if (-not (Test-Path -LiteralPath $strataPy -PathType Leaf)) { throw '找不到官方 strata.py；请先运行官方更新。' }
+            $modelKey=Get-StrataDeepSeekModelKey $ConfigPath
+            if (-not $modelKey) { throw '无法从配置文件名推断 DeepSeek 模型规格；请直接运行：strata launch --model <规格> --plan' }
+            $cmd='"' + $Py + '" "' + $strataPy + '" launch --model ' + $modelKey + ' --family deepseek41 --data-dir "' + $dataDir + '" --plan'
+            Start-CmdCommand $cmd -KeepOpen
+            $status.Text='已在独立窗口运行官方规划预测（只读，不改变任何设置）。'
+        } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'规划预测失败','OK','Error') | Out-Null }
+    })
+}
 $stop.Add_Click({
     try {
         $p=[int]$port.Value

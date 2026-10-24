@@ -100,4 +100,6 @@ $threw = $false
 try { [void](Set-StrataDeepSeekGpuConfig -Config $gpuConfig -Cards $cards -CurrentCards $cards -Selected @()) } catch { $threw = $true }
 Assert-True $threw 'an empty card selection must be rejected'
 
+Assert-True ((Get-StrataDeepSeekModelKey 'D:\AI\Strata\strata-deepseek-v4.1-flash-ist-das-2.00bpw.json') -eq 'ist-das-2.00bpw') 'the model key should come from the DeepSeek config name'
+Assert-True ((Get-StrataDeepSeekModelKey 'D:\AI\Strata\strata-iq3_s.json') -eq '') 'a Qwen config has no DeepSeek model key'
 'PASS: DeepSeek settings map to the dsv41 flags and Qwen-only flags are dropped'
