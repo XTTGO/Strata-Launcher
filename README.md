@@ -2,9 +2,9 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-最新正式版：**v0.1.7.2** · 针对 **Strata v0.2.4 / 引擎 0.1.48** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.7.2)
+最新正式版：**v0.1.7.3** · 针对 **Strata v0.2.4 / 引擎 0.1.48** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.7.3)
 
-v0.1.7.2 修正了 DeepSeek 导入预检的一个误报：共享文件（Engram、DSpark、元数据分片）与模型分片放在同一目录时，不再被当成两个模型。v0.1.7.1 起本地模型导入支持 DeepSeek-V4.1-Flash 多文件分片；v0.1.7 新增 NVIDIA 多卡分层分配、Strata Monitor 悬浮窗和可折叠的设置分组。Qwen 官方预编译引擎仍为 0.1.48，源码中的 0.1.49 是新的构建目标。
+v0.1.7.3 完整适配 DeepSeek-V4.1-Flash 的命令行：启动器不再向 `strata-dsv41` 写入 Qwen 专用参数，并显示 `--reserve-mib`、`--cpu-threads`、`--dspark`、`--ssd-cache` 等 DeepSeek 自己的运行参数。0.1.7.2 修正了导入预检的“多个模型”误报；0.1.7.1 起本地模型导入支持 DeepSeek 多文件分片。Qwen 官方预编译引擎仍为 0.1.48，源码中的 0.1.49 是新的构建目标。
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -37,7 +37,7 @@ v0.1.7.2 修正了 DeepSeek 导入预检的一个误报：共享文件（Engram�
 ## 快速开始
 
 1. 在 Windows 10 或 11 上，通过 Strata 的 `START-HERE.bat` 完成源码安装，并安装至少一个模型。
-2. 从 [v0.1.7.2 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.7.2) 下载 `Strata-Launcher-v0.1.7.2-for-existing-install.zip`。
+2. 从 [v0.1.7.3 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.7.3) 下载 `Strata-Launcher-v0.1.7.3-for-existing-install.zip`。
 3. 解压后，将整个 `launcher` 文件夹放进 Strata 根目录，与 `START-HERE.bat` 并列。
 4. 双击 `launcher\Strata-Launcher.bat`。
 
@@ -67,6 +67,6 @@ v0.1.7.2 修正了 DeepSeek 导入预检的一个误报：共享文件（Engram�
 
 - [详细安装与功能说明](README.txt)
 - [版本更新记录](CHANGELOG.md)
-- [v0.1.7.2 发布说明与 SHA-256](releases/v0.1.7.2/RELEASE_NOTES.md)
+- [v0.1.7.3 发布说明与 SHA-256](releases/v0.1.7.3/RELEASE_NOTES.md)
 
-v0.1.7.2 的发布验证记录见对应发布说明：139 个 Python 测试与 34 个 PowerShell 测试通过，DeepSeek-V4.1-Flash 的完整文件目录（4 个分片 + Engram + DSpark + 元数据分片）已在本机通过导入预检；**DeepSeek 的完整推理未在本机验收。**
+v0.1.7.3 的发布验证记录见对应发布说明：139 个 Python 测试与 35 个 PowerShell 测试通过，DeepSeek 参数读写与界面分支已用临时配置验证；**DeepSeek 的完整推理未在本机验收。**

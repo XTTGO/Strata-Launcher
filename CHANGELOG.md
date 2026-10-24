@@ -1,6 +1,13 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前版本为 `0.1.7.2`；针对本机 Strata `v0.2.4` 源码安装版完成校验，Qwen 预编译引擎为 `0.1.48`。
+启动器版本独立于 Strata 官方版本。当前版本为 `0.1.7.3`；针对本机 Strata `v0.2.4` 源码安装版完成校验，Qwen 预编译引擎为 `0.1.48`。
+
+## 0.1.7.3 — 2026-10-24
+
+- 完整适配 DeepSeek-V4.1-Flash 的命令行（`deepseek41` / `strata-dsv41`）：保存与启动时不再写入 Qwen 引擎专用的 `--kv`、`--kv-resident`、`--vram-reserve-mib`、`--pool-workers`、`--rope-scaling`、`--rope-scale`，避免 dsv41 把未知参数当成致命错误（退出码 2）。
+- DeepSeek 模型改为显示并使用自己的运行参数：上下文（8192 为官方默认）、显存预留 `--reserve-mib`、CPU 线程 `--cpu-threads`、DSpark 草稿 `--dspark`、草稿置信度 `--dspark-conf`、SSD 专家缓存 `--ssd-cache`、预填充分块 `--prefill-chunk`；官方写入的 `--pack`、`--eos`、`--expert-profile` 原样保留。
+- DeepSeek 下隐藏不适用的选项：KV cache 格式、驻留 KV、并行请求（官方会忽略）、视觉、显卡角色分配（引擎自行安排专家分层）；这些控件不再参与保存。
+- 验证：139 个 Python 测试与 35 个 PowerShell 测试通过；新增 DeepSeek 参数测试覆盖官方参数集的读写；用临时 DeepSeek 配置打开界面，确认显示上述控件、且不出现 KV/并行行。DeepSeek 的完整推理仍未在本机验收。
 
 ## 0.1.7.2 — 2026-10-24
 
