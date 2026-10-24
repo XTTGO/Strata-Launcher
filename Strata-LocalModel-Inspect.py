@@ -22,10 +22,16 @@ def inspect_folder(folder: Path) -> dict[str, object]:
         raise ValueError("No GGUF model files found in the selected directory")
     choices = set(choice for path in ggufs if (choice := setup.gguf_choice(path.name)))
     multi_families = getattr(setup, "MULTI_FILE_FAMILIES", {})
+    matches = {}
     for family, spec in multi_families.items():
         for model, meta in spec["models"].items():
-            if any(path.name in meta["shards"] for path in ggufs):
-                choices.add((family, model))
+            hits = sum(1 for path in ggufs if path.name in meta["shards"])
+            if hits:
+                matches[(family, model)] = hits
+    if matches:
+        best = max(matches.values())
+        winners = [key for key, hits in matches.items() if hits == best]
+        choices.update(winners)                 # several sets with the same count stay ambiguous on purpose
     for family, spec in getattr(setup, "OWN_PATH_FAMILIES", {}).items():
         for model in spec["models"]:
             if any(path.name == spec["file"].format(q=model) for path in ggufs):

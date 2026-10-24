@@ -51,11 +51,12 @@ class LocalModelImportTests(unittest.TestCase):
         family, spec = next(iter(setup.MULTI_FILE_FAMILIES.items()))
         model, meta = next(iter(spec["models"].items()))
         with tempfile.TemporaryDirectory() as directory:
-            for name in meta["shards"]:
+            for name in [*meta["shards"], *meta.get("shared", [])]:
                 Path(directory, name).touch()
             result = self.run_helper(directory)
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn("No GGUF filename", result.stderr)
+        self.assertNotIn("multiple", result.stderr)
         self.assertIn("size", result.stderr.lower())
 
     def test_own_path_model_is_recognized_and_size_checked(self):
