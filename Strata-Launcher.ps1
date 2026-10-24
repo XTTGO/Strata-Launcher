@@ -429,6 +429,11 @@ function Context-Item([long]$Value) {
     return ("{0}（自定义）" -f $Value)
 }
 function Context-Summary([long]$Value) {
+    if ($isDeepSeek) {
+        if ($Value -le 65536) { return "$(($Value / 1024))K 上下文（官方验证 8K，其余未验证）" }
+        $scale=([double]$Value / 65536.0).ToString('0.###',[Globalization.CultureInfo]::InvariantCulture)
+        return "$(($Value / 1024))K 上下文，YaRN ${scale}x（未验证）"
+    }
     if ($Value -le 262144) { return "$(($Value / 1024))K 原生上下文" }
     $scale=([double]$Value / 262144.0).ToString('0.###',[Globalization.CultureInfo]::InvariantCulture)
     return "$(($Value / 1024))K 实验上下文，YaRN ${scale}x"
@@ -510,7 +515,20 @@ $script:ContextItems=@(
     '1048576（1M，YaRN 4x，高级实验）'
 )
 if ($isOwnPath) { $script:ContextItems=@($script:ContextItems | Where-Object { (Context-Value $_) -le 262144 }) }
-if ($isDeepSeek) { $script:ContextItems=@('8192（8K，官方默认）','16384（16K，未验证）','32768（32K，未验证）','65536（64K，未验证）') }
+if ($isDeepSeek) {
+    # The GGUF metadata says 64K native, YaRN x16 up to 1M; the official setup only checks 8192, so every
+    # larger value is offered as unverified. The engine accepts it; the KV cache grows with it.
+    $script:ContextItems=@(
+        '8192（8K，官方默认）',
+        '16384（16K，未验证）',
+        '32768（32K，未验证）',
+        '65536（64K，原生上限，未验证）',
+        '131072（128K，YaRN ×2，未验证）',
+        '262144（256K，YaRN ×4，未验证）',
+        '524288（512K，YaRN ×8，未验证）',
+        '1048576（1M，YaRN ×16，未验证）'
+    )
+}
 $modelLabels=@($modelConfigs | ForEach-Object { $_.Label })
 Add-Section 'model' 'MODEL & PRESET' '选择模型与常用使用方式'
 $modelSelector=Make-Combo $modelLabels ([string]$selectedConfig.Label)
@@ -545,7 +563,7 @@ Add-Section 'runtime' 'RUNTIME & MEMORY' '上下文、显存与服务运行参�
 $initialContext=[long](Arg-Value $cfg.args '--max-context' '131072')
 $initialContextItem=Context-Item $initialContext
 if ($script:ContextItems -notcontains $initialContextItem) { $script:ContextItems += $initialContextItem }
-$ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方在 8192 上验证；更高上下文未验证，可能更慢或占更多内存'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
+$ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方默认 8192；模型原生 64K，元数据支持 YaRN ×16 到 1M；官方只验证到 8192，更大更占显存/内存'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
 if ($isDeepSeek) {
     $dsReserve = Make-Num ([string]$deepSeekSettings.ReserveMib) 0 32768 128; Add-Row $layout $row '显存预留 MiB' $dsReserve '引擎的 --reserve-mib；0 = 自动（不写该参数）'
     $dsThreads = Make-Num ([string]$deepSeekSettings.CpuThreads) 0 128 1; Add-Row $layout $row 'CPU 线程数' $dsThreads '引擎的 --cpu-threads；0 = 引擎自动'

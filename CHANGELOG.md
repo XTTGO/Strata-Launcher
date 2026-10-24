@@ -1,7 +1,12 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前开发版本为 `0.1.7.5-dev.3`（未发布），以 `0.1.7.4` 为最后正式版；针对本机 Strata `v0.2.4` 源码安装版校验。
+启动器版本独立于 Strata 官方版本。当前开发版本为 `0.1.7.5-dev.4`（未发布），以 `0.1.7.4` 为最后正式版；针对本机 Strata `v0.2.4` 源码安装版校验。
 
+## 0.1.7.5-dev.4 — 2026-10-24（未发布）
+
+- DeepSeek 上下文选项从 8K–64K 扩到 8K–1M：8K 官方默认、64K 原生，128K/256K/512K/1M 为 YaRN ×2/×4/×8/×16（均标未验证；KV 显存随上下文增长）。
+- 依据：GGUF 元数据 `context_length=1048576`、`rope.scaling.factor=16`、`original_context_length=65536`；引擎 `--max-context` 不设上限。官方文档只验证 8192，所以更大的都标“未验证”。
+- 上下文摘要对 DeepSeek 按 64K 原生 / YaRN 换算，不再误用 Qwen 的 262144 基准。
 ## 0.1.7.5-dev.3 — 2026-10-24（未发布）
 
 - DeepSeek 的性能入口改用官方工具：原“保存并校准”按钮对 DeepSeek 变为「官方调优」，运行官方 `tools/dsv41/tune.py --config <配置> --mode quick`（与 `strata launch --tune quick` 同一条路径），结果写入当前配置。

@@ -14,7 +14,7 @@
 | 启动器功能 | DeepSeek 状态 | 说明 |
 |---|---|---|
 | 本地模型导入预检 | ✅ 支持 | 识别 `deepseek41` 多文件族；按官方固定大小核对分片；共享文件（Engram、DSpark、元数据分片）可同目录 |
-| 上下文长度 | ✅ 支持 | `--max-context`；官方只验证到 8192，更高标为未验证 |
+| 上下文长度 | ✅ 支持 | `--max-context`；官方默认 8192，模型 64K 原生、YaRN ×16 到 1M（更大均为未验证） |
 | 显存预留 | ✅ 支持 | 写入 `--reserve-mib`（Qwen 的 `--vram-reserve-mib` 不适用） |
 | CPU 线程数 | ✅ 支持 | 写入 `--cpu-threads`（Qwen 的 `--pool-workers` 不适用） |
 | DSpark 草稿 | ✅ 支持 | `--dspark auto/on/off`，`--dspark-conf` 0–1；官方没写时不补默认值 |
