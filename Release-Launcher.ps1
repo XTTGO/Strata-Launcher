@@ -24,10 +24,10 @@
     推送 main 与标签，但不建 GitHub Release（资产需自己上传）。
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File tools\Release-Launcher.ps1 -Version 0.1.9 -VerifyOnly
+    powershell -NoProfile -ExecutionPolicy Bypass -File Release-Launcher.ps1 -Version 0.1.9 -VerifyOnly
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File tools\Release-Launcher.ps1 -Version 0.1.9
+    powershell -NoProfile -ExecutionPolicy Bypass -File Release-Launcher.ps1 -Version 0.1.9
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -240,4 +240,4 @@ try {
 }
 
 Say "$tag 已发布"
-Write-Host "   核对：powershell -NoProfile -ExecutionPolicy Bypass -File tools\Release-Launcher.ps1 -Version $Version -VerifyOnly"
+Write-Host "   核对：powershell -NoProfile -ExecutionPolicy Bypass -File Release-Launcher.ps1 -Version $Version -VerifyOnly"
