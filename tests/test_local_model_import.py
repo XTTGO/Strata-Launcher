@@ -45,6 +45,19 @@ class LocalModelImportTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertTrue((result.stdout + result.stderr).strip())
 
+    def test_multi_file_model_is_recognized_and_checked(self):
+        sys.path.insert(0, str(ROOT))
+        import setup
+        family, spec = next(iter(setup.MULTI_FILE_FAMILIES.items()))
+        model, meta = next(iter(spec["models"].items()))
+        with tempfile.TemporaryDirectory() as directory:
+            for name in meta["shards"]:
+                Path(directory, name).touch()
+            result = self.run_helper(directory)
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("No GGUF filename", result.stderr)
+        self.assertIn("size", result.stderr.lower())
+
     def test_own_path_model_is_recognized_and_size_checked(self):
         sys.path.insert(0, str(ROOT))
         import setup

@@ -53,7 +53,7 @@ $licensePath = Join-Path $strataRoot 'LICENSE'
 if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) { $missing += '..\LICENSE' }
 if ($missing.Count) { throw '无法构建分享包，缺少：' + ($missing -join ', ') }
 $version = (Get-Content -LiteralPath (Join-Path $launcherDirectory 'VERSION.txt') -Raw -Encoding UTF8).Trim()
-if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+if ($version -notmatch '^\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?$') {
     throw "启动器 VERSION.txt 不是有效版本号：$version"
 }
 $packageStem = "Strata-Launcher-v$version-for-existing-install"

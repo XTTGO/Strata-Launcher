@@ -21,6 +21,11 @@ def inspect_folder(folder: Path) -> dict[str, object]:
     if not ggufs:
         raise ValueError("No GGUF model files found in the selected directory")
     choices = set(choice for path in ggufs if (choice := setup.gguf_choice(path.name)))
+    multi_families = getattr(setup, "MULTI_FILE_FAMILIES", {})
+    for family, spec in multi_families.items():
+        for model, meta in spec["models"].items():
+            if any(path.name in meta["shards"] for path in ggufs):
+                choices.add((family, model))
     for family, spec in getattr(setup, "OWN_PATH_FAMILIES", {}).items():
         for model in spec["models"]:
             if any(path.name == spec["file"].format(q=model) for path in ggufs):
@@ -31,6 +36,19 @@ def inspect_folder(folder: Path) -> dict[str, object]:
     if len(choices) != 1:
         raise ValueError("Found multiple supported models in one directory; select a directory with one model")
     family, model = choices[0]
+    if family in multi_families:
+        meta = multi_families[family]["models"][model]
+        shards = [folder / name for name in meta["shards"]]
+        missing = [path.name for path in shards if not path.is_file()]
+        if missing:
+            raise ValueError("Missing GGUF shards: " + ", ".join(missing[:3]))
+        pinned = multi_families[family].get("sha256", {})
+        for path in shards:
+            expected = pinned.get(path.name)
+            if expected and path.stat().st_size != expected[0]:
+                raise ValueError(f"GGUF size mismatch for {path.name}: expected {expected[0]} bytes")
+        return {"family": family, "model": model, "shards": len(shards),
+                "filenames": [path.name for path in shards], "sha256_pending": True}
     if family in getattr(setup, "OWN_PATH_FAMILIES", {}):
         spec = setup.OWN_PATH_FAMILIES[family]
         path = folder / spec["file"].format(q=model)
