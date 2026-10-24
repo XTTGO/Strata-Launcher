@@ -49,3 +49,10 @@
 
 - [x] Inspect the branch diff for unintended runtime or data changes.
 - [x] Confirm branch, tests, and remaining real-GPU validation boundary.
+
+### Task 4: Live two-card acceptance
+
+- [x] Generate an isolated config snapshot using the launcher's placement module.
+- [x] Load the IQ3_S model on GPU 0 Helper and GPU 1 Main, confirm the engine's layer ranges and both cards' VRAM use.
+- [x] Send a short API request and confirm a nonempty reply.
+- [x] Stop the owned server, confirm VRAM release, and rerun the offline tests.
