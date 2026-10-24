@@ -1,10 +1,12 @@
 ﻿param(
     [string]$StrataRoot = (Split-Path -Parent $PSScriptRoot),
     [switch]$SourceOnly,
+    [switch]$VerifyOnly,
     [string]$ReleaseTag = ''
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Strata-Launcher-Environment.ps1')
 $root = [IO.Path]::GetFullPath($StrataRoot)
 $startHere = Join-Path $root 'START-HERE.bat'
 $officialUpdate = Join-Path $root 'UPDATE.bat'
@@ -108,7 +110,7 @@ function Invoke-SignedFeedEngineUpdate {
     if (-not (Test-Path -LiteralPath (Join-Path $root 'strata.py') -PathType Leaf)) {
         throw '当前 Strata 源码没有签名更新命令 strata.py。'
     }
-    Write-Host '官方旧安装流程未装到源码要求的引擎版本；调用 Strata 的签名更新源并同步到旧版 engine 目录 ...'
+    Write-Host '官方安装流程未装到兼容下限；调用 Strata 的签名更新源并同步到 engine 目录 ...'
     $bridge = 'import setup; result = setup.engine_from_feed(setup.engine_dir(13), updating=True); raise SystemExit(0 if result is not None else 6)'
     & $python -c $bridge | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "官方签名引擎更新失败（退出码 $LASTEXITCODE）。" }
@@ -122,6 +124,9 @@ function Assert-EngineUpdated {
     }
     $sourceVersion = Get-SourceEngineVersion
     $installedVersion = Get-InstalledEngineVersion
+    $engineStatus = Get-StrataEngineVersionStatus -Root $root
+    if ($engineStatus.Issue) { throw $engineStatus.Issue }
+    if (-not $engineStatus.RequiredVersion) { throw '无法读取 Strata 官方 MIN_ENGINE 兼容下限。' }
     $binaryOutput = (& $exePath --version 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $binaryOutput -notmatch '\bstrata\s+(\d+(?:\.\d+)+)\b') {
         throw "引擎可执行文件无法报告版本：$binaryOutput"
@@ -129,16 +134,23 @@ function Assert-EngineUpdated {
     if ($Matches[1] -ne $installedVersion) {
         throw "引擎文件版本 $($Matches[1]) 与 BUILD.json 的 $installedVersion 不一致。"
     }
-    if ([version]$installedVersion -lt [version]$sourceVersion) {
-        throw "源码已更新，但引擎仍为 $installedVersion；当前源码目标为 $sourceVersion。请查看上方官方更新错误。"
+    if ([version]$installedVersion -lt $engineStatus.RequiredVersion) {
+        if ($engineStatus.InstallSource -eq 'local') {
+            throw "本地编译引擎仍为 $installedVersion，低于当前源码构建目标 $($engineStatus.RequiredVersion)；请重新编译。"
+        }
+        throw "预编译引擎仍为 $installedVersion，低于 Strata 官方兼容下限 $($engineStatus.RequiredVersion)；请查看上方官方更新错误。"
     }
-    Write-Host "更新验证通过：源码目标引擎 $sourceVersion；已安装引擎 $installedVersion。"
+    Write-Host "更新验证通过：源码构建目标 $sourceVersion；官方兼容下限 $($engineStatus.MinimumVersion)；已安装引擎 $installedVersion ($($engineStatus.InstallSource))。"
 }
 
 try {
     if (-not (Test-Path -LiteralPath $startHere -PathType Leaf) -or
             -not (Test-Path -LiteralPath $officialUpdate -PathType Leaf)) {
         throw "找不到官方 START-HERE.bat 或 UPDATE.bat：$root"
+    }
+    if ($VerifyOnly) {
+        Assert-EngineUpdated
+        exit 0
     }
     $sourceUpdated = Update-Source
     if ($SourceOnly) {
@@ -158,13 +170,15 @@ try {
         Pop-Location
     }
     if ($updateExit -ne 0) { throw "官方更新脚本退出码为 $updateExit。" }
-    $sourceVersion = Get-SourceEngineVersion
-    $installedVersion = Get-InstalledEngineVersion
-    if (-not $installedVersion -or [version]$installedVersion -lt [version]$sourceVersion) {
+    $engineStatus = Get-StrataEngineVersionStatus -Root $root
+    if ($engineStatus.Issue) { throw $engineStatus.Issue }
+    if (-not $engineStatus.RequiredVersion) { throw '无法读取 Strata 官方 MIN_ENGINE 兼容下限。' }
+    if ($engineStatus.InstallSource -ne 'local' -and
+            (-not $engineStatus.InstalledVersion -or $engineStatus.InstalledVersion -lt $engineStatus.RequiredVersion)) {
         Invoke-SignedFeedEngineUpdate
     }
     Assert-EngineUpdated
-    Write-Host 'Strata 源码及引擎更新完成。'
+    Write-Host 'Strata 源码更新和引擎兼容性验证完成。'
     exit 0
 } catch {
     Write-Host "Strata 更新未完成：$($_.Exception.Message)" -ForegroundColor Red

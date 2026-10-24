@@ -22,6 +22,7 @@
         -not (Test-Path -LiteralPath $_.Value -PathType Leaf)
     } | ForEach-Object { $_.Key })
     $engineStatus = Get-StrataEngineVersionStatus -Root $root
+    $strataVersion = Get-StrataSourceVersion -Root $root
     $engineIssue = [string]$engineStatus.Issue
     $engineWarning = [string]$engineStatus.Warning
     if ($engineIssue) { $missing += $engineIssue }
@@ -96,6 +97,8 @@
         UnavailableModels = @($unavailableModels)
         EngineIssue = $engineIssue
         EngineWarning = $engineWarning
+        StrataVersion = $strataVersion
+        EngineVersion = $(if ($engineStatus.InstalledVersion) { [string]$engineStatus.InstalledVersion } else { '未知' })
         ModelCatalogStatus = $(if ($modelCatalog.Count) { 'current-setup' } else { 'fallback' })
         ModelCatalogSource = $catalogSource
         ModelCatalogCount = $modelCatalog.Count
@@ -105,43 +108,75 @@
     }
 }
 
+function Get-StrataSourceVersion {
+    param([Parameter(Mandatory=$true)][string]$Root)
+
+    if (-not (Test-Path -LiteralPath (Join-Path $Root '.git')) -or
+            -not (Get-Command git -ErrorAction SilentlyContinue)) { return '未知' }
+    try {
+        $description = @(& git -C $Root describe --tags --always --match 'v[0-9]*' 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $description.Count -eq 1) {
+            $version = ([string]$description[0]).Trim()
+            if ($version -match '^v\d+\.\d+\.\d+(?:\.\d+)?(?:-\d+-g[0-9a-f]+)?$') { return $version }
+        }
+    } catch { }
+    return '未知'
+}
+
 function Get-StrataEngineVersionStatus {
     param([Parameter(Mandatory=$true)][string]$Root)
 
     $setupPath = Join-Path $Root 'setup.py'
-    $issue = ''
-    $warning = ''
+    $status = [pscustomobject]@{
+        Issue = ''
+        Warning = ''
+        MinimumVersion = $null
+        SourceVersion = $null
+        RequiredVersion = $null
+        InstalledVersion = $null
+        InstallSource = ''
+    }
     if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
-        return [pscustomobject]@{ Issue=$issue; Warning=$warning }
+        return $status
     }
     try {
         $setupSource = Get-Content -LiteralPath $setupPath -Raw -Encoding UTF8
         $match = [regex]::Match($setupSource,'(?m)^MIN_ENGINE\s*=\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)')
-        if (-not $match.Success) { return [pscustomobject]@{ Issue=$issue; Warning=$warning } }
+        if (-not $match.Success) { return $status }
         $minimum = [version]::new([int]$match.Groups[1].Value,[int]$match.Groups[2].Value,[int]$match.Groups[3].Value)
+        $status.MinimumVersion = $minimum
         $cmakePath = Join-Path $Root 'CMakeLists.txt'
         if (Test-Path -LiteralPath $cmakePath -PathType Leaf) {
             $cmakeSource = Get-Content -LiteralPath $cmakePath -Raw -Encoding UTF8
             $sourceMatch = [regex]::Match($cmakeSource,'(?m)^project\(strata\s+VERSION\s+(\d+(?:\.\d+)+)\b')
             if ($sourceMatch.Success) {
-                $sourceVersion = [version]$sourceMatch.Groups[1].Value
-                if ($sourceVersion -gt $minimum) { $minimum = $sourceVersion }
+                $status.SourceVersion = [version]$sourceMatch.Groups[1].Value
             }
         }
         $buildPath = Join-Path $Root 'engine\BUILD.json'
         if (-not (Test-Path -LiteralPath $buildPath -PathType Leaf)) {
-            $issue = "引擎安装状态无法确认：缺少 $buildPath。"
-            return [pscustomobject]@{ Issue=$issue; Warning=$warning }
+            $status.Issue = "引擎安装状态无法确认：缺少 $buildPath。"
+            return $status
         }
         $build = Get-Content -LiteralPath $buildPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $installed = [version]([string]$build.version)
-        if ($installed -lt $minimum) {
-            $warning = "当前引擎 $installed 低于 Strata 当前源码期望的 $minimum；官方允许继续启动旧引擎，请检查更新结果。"
+        $status.InstalledVersion = [version]([string]$build.version)
+        $status.InstallSource = [string]$build.source
+        $required = $minimum
+        if ($status.InstallSource -eq 'local' -and $status.SourceVersion -and $status.SourceVersion -gt $required) {
+            $required = $status.SourceVersion
+        }
+        $status.RequiredVersion = $required
+        if ($status.InstalledVersion -lt $required) {
+            if ($status.InstallSource -eq 'local') {
+                $status.Warning = "当前本地编译引擎 $($status.InstalledVersion) 低于当前源码构建目标 $required；请重新编译引擎。"
+            } else {
+                $status.Warning = "当前预编译引擎 $($status.InstalledVersion) 低于 Strata 安装所需 $required；请检查更新结果。"
+            }
         }
     } catch {
-        $issue = '无法读取或比较 engine\BUILD.json 中的引擎版本。'
+        $status.Issue = '无法读取或比较 Strata 安装及引擎版本。'
     }
-    return [pscustomobject]@{ Issue=$issue; Warning=$warning }
+    return $status
 }
 
 function Get-StrataMissingModelFiles {

@@ -10,7 +10,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "FAIL: $Message" }
 }
 
-$launcherRoot = (Resolve-Path 'launcher').Path
+$launcherRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $themeModule = Join-Path $launcherRoot 'Strata-Launcher-Theme.ps1'
 if (-not (Test-Path -LiteralPath $themeModule -PathType Leaf)) {
     throw "FAIL: visual theme module is missing: $themeModule"
@@ -44,6 +44,27 @@ Assert-Equal $section.Height 42 'section headers should create consistent vertic
 Assert-Equal $section.Controls.Count 3 'section headers should include accent, title, and subtitle elements'
 Assert-Equal $section.Controls[0].BackColor.Name $theme.Accent.Name 'section headers should carry the red accent bar'
 $section.Dispose()
+
+$collapsible = New-StrataSectionHeader -Title 'GENERATION' -Subtitle 'Advanced controls' -Theme $theme -Collapsible
+$toggle = @($collapsible.Controls.Find('SectionToggle', $false))
+Assert-Equal $toggle.Count 1 'a collapsible section should expose one keyboard-focusable toggle'
+$table = [Windows.Forms.TableLayoutPanel]::new()
+$table.ColumnCount = 1
+$table.RowCount = 2
+[void]$table.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute', 58))
+[void]$table.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
+$field = [Windows.Forms.TextBox]::new(); $field.Text = 'preserved setting'
+[void]$table.Controls.Add($collapsible, 0, 0)
+[void]$table.Controls.Add($field, 0, 1)
+Set-StrataSectionExpanded -Layout $table -Header $collapsible -FirstRow 1 -LastRow 1 -Expanded $false
+Assert-Equal $table.RowStyles[1].SizeType ([Windows.Forms.SizeType]::Absolute) 'collapsed rows should stop occupying layout space'
+Assert-Equal $table.RowStyles[1].Height 0 'collapsed rows should have zero height'
+Assert-True (-not $field.Visible) 'collapsed controls should be hidden'
+Set-StrataSectionExpanded -Layout $table -Header $collapsible -FirstRow 1 -LastRow 1 -Expanded $true
+Assert-Equal $table.RowStyles[1].SizeType ([Windows.Forms.SizeType]::AutoSize) 'expanded rows should regain their layout'
+Assert-Equal $field.Text 'preserved setting' 'folding should preserve edited values'
+Assert-True $field.Visible 'expanded controls should become visible again'
+$table.Dispose()
 
 $form = [Windows.Forms.Form]::new()
 $panel = [Windows.Forms.Panel]::new()

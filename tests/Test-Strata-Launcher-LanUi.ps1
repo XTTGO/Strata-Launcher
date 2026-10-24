@@ -87,7 +87,7 @@ $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powersh
 $keyPath = Join-Path $workingDirectory 'data\lan-key.dpapi'
 $keyExisted = Test-Path -LiteralPath $keyPath
 $process = Start-Process -FilePath $powershell -ArgumentList @(
-    '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"' + $launcher + '"')
+    '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"' + $launcher + '"'),'-ExpandAllSections'
 ) -WorkingDirectory $workingDirectory -PassThru
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds(18)

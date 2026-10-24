@@ -43,7 +43,7 @@ $launcher=Join-Path $launcherRoot 'Strata-Launcher.ps1'
 $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $existing=@([StrataMonitorLaunchUiProbe]::VisibleWindows('Strata Monitor',0))
 $launcherProcess=Start-Process -FilePath $powershell -ArgumentList @(
-    '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"'+$launcher+'"')
+    '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"'+$launcher+'"'),'-ExpandAllSections'
 ) -WorkingDirectory $launcherRoot -PassThru
 $overlayPid=0
 try {

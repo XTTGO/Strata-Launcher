@@ -22,28 +22,33 @@ try {
         [pscustomobject]@{model_name='model-a';arch='';label='Model A'}
     }
 
-    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.45"}')
+    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.45","source":"prebuilt"}')
     $old=Get-StrataLauncherEnvironment -LauncherDirectory $launcher
     if(-not $old.IsReady -or -not ([string]$old.EngineWarning).Contains('0.1.46')){
         throw 'An older engine should remain usable with a visible warning.'
     }
-    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.47"}')
+    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.47","source":"prebuilt"}')
     $current=Get-StrataLauncherEnvironment -LauncherDirectory $launcher
     if(-not $current.IsReady -or $current.EngineWarning){throw "A current engine was rejected or warned: $($current.Message)"}
-    [IO.File]::WriteAllText((Join-Path $root 'CMakeLists.txt'),'project(strata VERSION 0.1.48 LANGUAGES CXX)')
+    [IO.File]::WriteAllText((Join-Path $root 'CMakeLists.txt'),'project(strata VERSION 0.1.49 LANGUAGES CXX)')
     $sourceAhead=Get-StrataLauncherEnvironment -LauncherDirectory $launcher
-    if(-not $sourceAhead.IsReady -or -not ([string]$sourceAhead.EngineWarning).Contains('0.1.48')){
-        throw 'The current source version should warn about an older engine even when MIN_ENGINE is lower.'
+    if(-not $sourceAhead.IsReady -or $sourceAhead.EngineWarning){
+        throw 'A compatible prebuilt Qwen engine should not warn just because the source also builds a newer engine.'
     }
-    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.48"}')
+    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.48","source":"local"}')
+    $localSourceAhead=Get-StrataLauncherEnvironment -LauncherDirectory $launcher
+    if(-not $localSourceAhead.IsReady -or -not ([string]$localSourceAhead.EngineWarning).Contains('0.1.49')){
+        throw 'A locally built engine should warn when its source target has advanced.'
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'engine\BUILD.json'),'{"version":"0.1.48","source":"prebuilt"}')
     $updated=Get-StrataLauncherEnvironment -LauncherDirectory $launcher
-    if(-not $updated.IsReady -or $updated.EngineWarning){throw 'The engine matching current source should pass.'}
+    if(-not $updated.IsReady -or $updated.EngineWarning){throw 'A compatible prebuilt engine should pass.'}
     Remove-Item -LiteralPath (Join-Path $root 'engine\BUILD.json') -Force
     $missing=Get-StrataLauncherEnvironment -LauncherDirectory $launcher
     if($missing.IsReady -or -not ([string]$missing.Message).Contains('BUILD.json')){
         throw 'An engine update without BUILD.json passed the environment check.'
     }
-    'PASS: engine version and incomplete update are detected'
+    'PASS: prebuilt compatibility, local build drift, and incomplete update are detected'
 } finally {
     $absoluteBase=[IO.Path]::GetFullPath($base)
     $tempRoot=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'

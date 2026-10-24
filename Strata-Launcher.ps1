@@ -1,7 +1,8 @@
 ﻿# Strata standalone Windows launcher. Uses only Windows PowerShell and WinForms.
 param(
     [string]$ConfigPath = '',
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$ExpandAllSections
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,8 @@ if ($CheckOnly) {
         root = $LauncherEnvironment.Root
         launcher = $LauncherEnvironment.LauncherDirectory
         launcher_version = $LauncherVersion
+        strata_version = $LauncherEnvironment.StrataVersion
+        engine_version = $LauncherEnvironment.EngineVersion
         model_count = $LauncherEnvironment.ModelConfigs.Count
         unavailable_model_count = $LauncherEnvironment.UnavailableModels.Count
         engine_warning = $LauncherEnvironment.EngineWarning
@@ -69,6 +72,7 @@ if (-not (Test-Path -LiteralPath $LanModule -PathType Leaf)) {
     exit 2
 }
 . $LanModule
+function Initialize-StrataProcessTree {
 if (-not ('StrataProcessTree' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -162,6 +166,7 @@ public static class StrataProcessTree {
     }
 }
 '@
+}
 }
 
 $Root = $LauncherEnvironment.Root
@@ -293,6 +298,7 @@ function Test-ProcessDescendant([int]$ChildId, [int]$AncestorId) {
     return $false
 }
 function Find-StrataServer([int]$Port) {
+    Initialize-StrataProcessTree
     $script:StopLookupDetail = ''
     # The native model engine is the most reliable signal; walk the full parent chain because cmd may sit above Python.
     $enginePath = Join-Path $Root 'engine\strata.exe'
@@ -382,6 +388,23 @@ function Add-Row([System.Windows.Forms.TableLayoutPanel]$Table, [int]$Row, [stri
     }
     $script:row = $Row + 1
 }
+$script:Sections = [Collections.ArrayList]::new()
+function Add-Section([string]$Key, [string]$Title, [string]$Subtitle) {
+    if ($script:Sections.Count) { $script:Sections[$script:Sections.Count - 1].LastRow = $script:row - 1 }
+    $header = New-StrataSectionHeader -Title $Title -Subtitle $Subtitle -Theme $theme -Collapsible
+    $layout.RowCount = [Math]::Max($layout.RowCount, $script:row + 1)
+    [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute', 58))
+    [void]$layout.Controls.Add($header, 0, $script:row)
+    $layout.SetColumnSpan($header, 3)
+    [void]$script:Sections.Add([pscustomobject]@{
+        Key = $Key
+        Header = $header
+        FirstRow = $script:row + 1
+        LastRow = -1
+        Expanded = $true
+    })
+    $script:row++
+}
 function Make-Combo([string[]]$Items, [string]$Selected) { $c = [Windows.Forms.ComboBox]::new(); $c.DropDownStyle = 'DropDownList'; [void]$c.Items.AddRange($Items); if ($Items -contains $Selected) { $c.SelectedItem = $Selected } else { $c.SelectedIndex = 0 }; return $c }
 function Make-Num([string]$Value, [decimal]$Min, [decimal]$Max, [decimal]$Step = 1) { $n = [Windows.Forms.NumericUpDown]::new(); $n.Minimum=$Min; $n.Maximum=$Max; $n.Increment=$Step; $n.DecimalPlaces=if ($Step -lt 1) { 2 } else { 0 }; $d=0.0; if ([double]::TryParse($Value,[ref]$d)) { $n.Value=[Math]::Min($Max,[Math]::Max($Min,[decimal]$d)) }; return $n }
 function NText($Control) { return ([decimal]$Control.Value).ToString([Globalization.CultureInfo]::InvariantCulture) }
@@ -454,7 +477,7 @@ $hero = [Windows.Forms.TableLayoutPanel]::new(); $hero.Tag='hero'; $hero.Dock='F
 $heroBrand = [Windows.Forms.TableLayoutPanel]::new(); $heroBrand.Tag='hero'; $heroBrand.Dock='Fill'; $heroBrand.ColumnCount=1; $heroBrand.RowCount=2
 [void]$heroBrand.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',48)); [void]$heroBrand.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
 $heroTitle = [Windows.Forms.Label]::new(); $heroTitle.Text='STRATA CONTROL CENTER'; $heroTitle.Tag='hero-text'; $heroTitle.AutoSize=$true; $heroTitle.Font=[Drawing.Font]::new('Segoe UI Semibold',21,[Drawing.FontStyle]::Bold); $heroTitle.Margin=[Windows.Forms.Padding]::new(0)
-$heroSubtitle = [Windows.Forms.Label]::new(); $heroSubtitle.Text='本地模型  /  启动  /  调优  /  Benchmark'; $heroSubtitle.Tag='hero-muted'; $heroSubtitle.AutoSize=$true; $heroSubtitle.Font=[Drawing.Font]::new('Segoe UI',9); $heroSubtitle.Margin=[Windows.Forms.Padding]::new(2,0,0,0)
+$heroSubtitle = [Windows.Forms.Label]::new(); $heroSubtitle.Text="Strata $($LauncherEnvironment.StrataVersion)  ·  引擎 $($LauncherEnvironment.EngineVersion)  ·  启动器 v$LauncherVersion"; $heroSubtitle.Tag='hero-muted'; $heroSubtitle.AutoSize=$true; $heroSubtitle.Font=[Drawing.Font]::new('Segoe UI',9); $heroSubtitle.Margin=[Windows.Forms.Padding]::new(2,0,0,0)
 [void]$heroBrand.Controls.Add($heroTitle,0,0); [void]$heroBrand.Controls.Add($heroSubtitle,0,1)
 $heroState = [Windows.Forms.Label]::new(); $heroState.Text=('●  CURRENT MODEL' + "`r`n" + [string]$selectedConfig.Label); $heroState.Tag='hero-text'; $heroState.Dock='Fill'; $heroState.TextAlign='MiddleLeft'; $heroState.AutoEllipsis=$true; $heroState.Padding=[Windows.Forms.Padding]::new(14,5,8,5); $heroState.BackColor=$theme.HeroSurface; $heroState.Font=[Drawing.Font]::new('Segoe UI Semibold',9,[Drawing.FontStyle]::Bold)
 $modelToolTip=[Windows.Forms.ToolTip]::new(); $modelToolTip.SetToolTip($heroState, ([string]$selectedConfig.Label + "`r`n" + [string]$selectedConfig.ModelName + "`r`n" + [string]$selectedConfig.Path))
@@ -478,8 +501,7 @@ $script:ContextItems=@(
 )
 if ($isOwnPath) { $script:ContextItems=@($script:ContextItems | Where-Object { (Context-Value $_) -le 262144 }) }
 $modelLabels=@($modelConfigs | ForEach-Object { $_.Label })
-$section = New-StrataSectionHeader -Title 'MODEL & PRESET' -Subtitle '选择模型与常用使用方式' -Theme $theme
-$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+Add-Section 'model' 'MODEL & PRESET' '选择模型与常用使用方式'
 $modelSelector=Make-Combo $modelLabels ([string]$selectedConfig.Label)
 $modelSelector.Width=340
 $modelSelector.DropDownWidth=360
@@ -494,8 +516,7 @@ $modelPanel=[Windows.Forms.FlowLayoutPanel]::new(); $modelPanel.FlowDirection='L
 Add-Row $layout $row '当前模型' $modelPanel
 $layout.SetColumnSpan($modelPanel,2)
 $preset = Make-Combo @('快速直答','日常通用','Agent / 深度思考','自定义') '自定义'; Add-Row $layout $row '使用预设' $preset '只调整生成参数；上下文、显存和并发保持当前模型设置'
-$section = New-StrataSectionHeader -Title 'GENERATION' -Subtitle '生成质量、随机性与重复控制' -Theme $theme
-$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+Add-Section 'generation' 'GENERATION' '生成质量、随机性与重复控制'
 $initialEffort=if ($shared.reasoning_effort) {[string]$shared.reasoning_effort} elseif ($cfg.reasoning_effort) {[string]$cfg.reasoning_effort} else {'high'}
 $effort = Make-Combo @('high','medium','low','none') $initialEffort; Add-Row $layout $row '思考强度' $effort '模型默认；请求可自行覆盖'
 $temp = Make-Num ([string]$(if ($null -ne $cfg.sampling.temperature) {$cfg.sampling.temperature} elseif ($null -ne $shared.temperature) {$shared.temperature} else {'0.6'})) 0 2 0.05; Add-Row $layout $row 'Temperature' $temp '随机性；低值更稳定'
@@ -509,8 +530,7 @@ $lastN = Make-Num ([string](Get-StrataSamplingValue -Sampling $cfg.sampling -Nam
 $seedText = [Windows.Forms.TextBox]::new(); $seedText.Text=if ($null -ne $shared.seed) {[string]$shared.seed} elseif ($null -ne $cfg.sampling.seed) {[string]$cfg.sampling.seed} else {''}; Add-Row $layout $row '随机种子' $seedText '留空表示每次随机'
 $maxOut = Make-Num ([string]$(if ($shared.max_tokens) {$shared.max_tokens} else {'0'})) 0 131072 128; Add-Row $layout $row 'API 默认最大输出' $maxOut '0 表示不设置服务端默认值'
 $reasonBudget = Make-Num ([string]$(if ($cfg.reasoning_budget_tokens) {$cfg.reasoning_budget_tokens} elseif ($shared.reasoning_budget_tokens) {$shared.reasoning_budget_tokens} else {'0'})) 0 131072 256; Add-Row $layout $row '思考 token 上限' $reasonBudget '0 表示不限制思考预算'
-$section = New-StrataSectionHeader -Title 'RUNTIME & MEMORY' -Subtitle '上下文、显存与服务运行参数' -Theme $theme
-$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+Add-Section 'runtime' 'RUNTIME & MEMORY' '上下文、显存与服务运行参数'
 $initialContext=[long](Arg-Value $cfg.args '--max-context' '131072')
 $initialContextItem=Context-Item $initialContext
 if ($script:ContextItems -notcontains $initialContextItem) { $script:ContextItems += $initialContextItem }
@@ -526,8 +546,7 @@ if ($isOwnPath) {
     Add-Row $layout $row '独立引擎参数' $nativeInfo '这些参数由官方 setup 管理；启动器保存时原样保留。'
 }
 $parallel = Make-Combo @('1','2','3','4') ([string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})); Add-Row $layout $row '并行请求数' $parallel '并发会增加显存和内存占用'
-$section = New-StrataSectionHeader -Title 'GPU PLACEMENT · NVIDIA' -Subtitle '为当前模型指定 Main / Helper / Off；多卡按模型层分工' -Theme $theme
-$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+Add-Section 'gpu_placement' 'GPU PLACEMENT · NVIDIA' '为当前模型指定 Main / Helper / Off；多卡按模型层分工'
 $gpuPlacementCards=@(Get-StrataNvidiaPlacementCards)
 $gpuPlacementBuild=$null
 try {
@@ -560,6 +579,7 @@ foreach($card in $gpuPlacementCards){
     Add-Row $layout $row $cardLabel $roleControl $cardHint
 }
 $gpuPlacementEdit.Add_CheckedChanged({foreach($selector in $gpuPlacementSelectors.Values){$selector.Enabled=($gpuPlacementEdit.Checked -and [bool]$selector.Tag)}})
+Add-Section 'network' 'NETWORK & ACCESS' '端口、局域网与启动选项'
 $port = Make-Num ([string]$cfg.port) 1024 65535 1; Add-Row $layout $row '服务端口' $port '默认 8080；监听范围由下方局域网开关决定'
 $lanAccess = [Windows.Forms.CheckBox]::new(); $lanAccess.Text='LAN access：允许局域网设备访问'; $lanAccess.Checked=(Get-StrataLanMode $LanModePath)
 Add-Row $layout $row '局域网访问' $lanAccess '默认关闭；下次由启动器启动时生效，必须使用 API key。不要做公网端口转发。'
@@ -606,10 +626,9 @@ if ($isOwnPath) { $vision.Enabled=$false; $vision.Checked=$false }
 $sharedDefaults = [Windows.Forms.CheckBox]::new(); $sharedDefaults.Text='保存为外部 API 客户端默认值'; $sharedDefaults.Checked=$true; Add-Row $layout $row 'API 默认参数' $sharedDefaults '请求未显式传参时生效；Agent 自己传的参数优先'
 $openBrowser = [Windows.Forms.CheckBox]::new(); $openBrowser.Text='服务就绪后打开本机网页'; $openBrowser.Checked=$true; Add-Row $layout $row '启动后' $openBrowser ''
 
-$section = New-StrataSectionHeader -Title 'GPU POWER · NVIDIA' -Subtitle '可选的系统级功率上限；仅点击应用或恢复时更改' -Theme $theme
-$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+Add-Section 'gpu_power' 'GPU POWER · NVIDIA' '可选的系统级功率上限；仅点击应用或恢复时更改'
 $gpuSelector=[Windows.Forms.ComboBox]::new(); $gpuSelector.DropDownStyle='DropDownList'; Add-Row $layout $row '显卡' $gpuSelector '只支持 NVIDIA；功率上限影响这张显卡上的所有程序'
-$gpuPowerInfo=[Windows.Forms.Label]::new(); $gpuPowerInfo.AutoSize=$true; $gpuPowerInfo.MaximumSize=[Drawing.Size]::new(255,0); $gpuPowerInfo.Text='正在读取显卡功率…'; Add-Row $layout $row '当前状态' $gpuPowerInfo '会显示当前值、出厂默认值与驱动允许范围'
+$gpuPowerInfo=[Windows.Forms.Label]::new(); $gpuPowerInfo.AutoSize=$true; $gpuPowerInfo.MaximumSize=[Drawing.Size]::new(255,0); $gpuPowerInfo.Text='展开后读取显卡功率'; Add-Row $layout $row '当前状态' $gpuPowerInfo '会显示当前值、出厂默认值与驱动允许范围'
 $gpuPowerWatts=Make-Num '100' 1 1000 1; $gpuPowerWatts.Enabled=$false; Add-Row $layout $row '目标功率 W' $gpuPowerWatts '手动应用；保存设置或启动 Strata 不会改变功率'
 $gpuPowerButtons=[Windows.Forms.FlowLayoutPanel]::new(); $gpuPowerButtons.FlowDirection='LeftToRight'; $gpuPowerButtons.WrapContents=$false; $gpuPowerButtons.AutoSize=$true
 $gpuPowerApply=[Windows.Forms.Button]::new(); $gpuPowerApply.Text='应用'; $gpuPowerApply.Width=65; $gpuPowerApply.Enabled=$false; $gpuPowerApply.Tag='button:Accent'
@@ -618,8 +637,7 @@ $gpuPowerRefresh=[Windows.Forms.Button]::new(); $gpuPowerRefresh.Text='刷新'; 
 foreach($button in @($gpuPowerApply,$gpuPowerRestore,$gpuPowerRefresh)){[void]$gpuPowerButtons.Controls.Add($button)}
 Add-Row $layout $row '功率操作' $gpuPowerButtons '写入可能触发 Windows 管理员授权；恢复的是修改前值，不是出厂默认值'
 
-$section = New-StrataSectionHeader -Title 'TOOLS & BENCHMARK' -Subtitle '性能校准、官方维护与对比报告' -Theme $theme
-$layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',58)); [void]$layout.Controls.Add($section,0,$row); $layout.SetColumnSpan($section,3); $row++
+Add-Section 'tools' 'TOOLS & BENCHMARK' '性能校准、官方维护与对比报告'
 $calibrationGroup=[Windows.Forms.GroupBox]::new(); $calibrationGroup.Tag='surface'; $calibrationGroup.Text='性能校准'; $calibrationGroup.Dock='Top'; $calibrationGroup.AutoSize=$true; $calibrationGroup.AutoSizeMode='GrowAndShrink'; $calibrationGroup.Padding=[Windows.Forms.Padding]::new(10,6,10,8); $calibrationGroup.Margin=[Windows.Forms.Padding]::new(8,10,10,6)
 $calibrationLayout=[Windows.Forms.TableLayoutPanel]::new(); $calibrationLayout.Dock='Top'; $calibrationLayout.AutoSize=$true; $calibrationLayout.ColumnCount=2; $calibrationLayout.RowCount=2
 [void]$calibrationLayout.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100)); [void]$calibrationLayout.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Absolute',146))
@@ -652,6 +670,7 @@ $benchmark=[Windows.Forms.Button]::new(); $benchmark.Text='批量 Benchmark 与�
 [void]$officialToolsLayout.Controls.Add($benchmark,0,4); $officialToolsLayout.SetColumnSpan($benchmark,3)
 $officialToolsGroup.Controls.Add($officialToolsLayout)
 $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new([Windows.Forms.SizeType]::AutoSize)); [void]$layout.Controls.Add($officialToolsGroup,0,$row); $layout.SetColumnSpan($officialToolsGroup,3); $row++
+$script:Sections[$script:Sections.Count - 1].LastRow = $row - 1
 
 function Refresh-CalibrationPanel {
     if ($isOwnPath) {
@@ -669,9 +688,16 @@ function Refresh-CalibrationPanel {
     $calibrationState.Text=$view.Summary
     $calibrationDetails.Text=$view.Details
 }
-Refresh-CalibrationPanel
-$ctx.Add_SelectedIndexChanged({ Refresh-CalibrationPanel })
-$vision.Add_CheckedChanged({ Refresh-CalibrationPanel })
+$script:CalibrationDirty = $true
+$refreshCalibrationIfVisible = {
+    $script:CalibrationDirty = $true
+    if ($script:SectionsByKey -and $script:SectionsByKey['tools'].Expanded) {
+        Refresh-CalibrationPanel
+        $script:CalibrationDirty = $false
+    }
+}
+$ctx.Add_SelectedIndexChanged($refreshCalibrationIfVisible)
+$vision.Add_CheckedChanged($refreshCalibrationIfVisible)
 
 $usageControls=@{
     effort=$effort; temperature=$temp; top_p=$topP; top_k=$topK; min_p=$minP
@@ -721,6 +747,53 @@ $lanKeyCopy.Tag='button:Secondary'; $lanFirewallAdd.Tag='button:Secondary'; $lan
 foreach ($toolButton in @($officialImport,$officialStart,$officialCheck,$officialUpdate,$backupSettings,$refreshModels)) { $toolButton.Tag='button:Secondary' }
 Set-StrataLauncherTheme -Root $form -Theme $theme
 
+$UiSectionsPath = Join-Path $LauncherData 'ui-sections.json'
+$sectionDefaults = @{model=$true; generation=$false; runtime=$true; gpu_placement=$true; network=$false; gpu_power=$false; tools=$false}
+$storedSections = @{}
+if (Test-Path -LiteralPath $UiSectionsPath -PathType Leaf) {
+    try {
+        $savedUiState = Get-Content -LiteralPath $UiSectionsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($savedUiState.schema -eq 1 -and $savedUiState.expanded) {
+            foreach ($property in $savedUiState.expanded.PSObject.Properties) {
+                if ($property.Value -is [bool]) { $storedSections[$property.Name] = $property.Value }
+            }
+        }
+    } catch { }
+}
+$script:SectionsByKey = @{}
+$script:GpuPowerInitialized = $false
+function Save-SectionStates {
+    $expanded = [ordered]@{}
+    foreach ($entry in $script:Sections) { $expanded[$entry.Key] = [bool]$entry.Expanded }
+    Atomic-Json $UiSectionsPath ([pscustomobject]@{schema=1; expanded=$expanded})
+}
+foreach ($entry in $script:Sections) {
+    $script:SectionsByKey[$entry.Key] = $entry
+    $entry.Expanded = if ($ExpandAllSections) { $true } elseif ($storedSections.ContainsKey($entry.Key)) { [bool]$storedSections[$entry.Key] } else { [bool]$sectionDefaults[$entry.Key] }
+    Set-StrataSectionExpanded -Layout $layout -Header $entry.Header -FirstRow $entry.FirstRow -LastRow $entry.LastRow -Expanded $entry.Expanded
+    $toggle = @($entry.Header.Controls.Find('SectionToggle', $false)) | Select-Object -First 1
+    $toggle.AccessibleName = $entry.Key
+    $toggle.Add_Click({
+        param($sender, $eventArgs)
+        $current = $script:SectionsByKey[[string]$sender.AccessibleName]
+        $expanded = -not $current.Expanded
+        Set-StrataSectionExpanded -Layout $layout -Header $current.Header -FirstRow $current.FirstRow -LastRow $current.LastRow -Expanded $expanded
+        $current.Expanded = $expanded
+        try { Save-SectionStates } catch { $status.Text = '折叠状态未能保存；本次窗口仍可正常使用。' }
+        if ($expanded -and $current.Key -eq 'gpu_power' -and -not $script:GpuPowerInitialized) {
+            try { Refresh-GpuPowerUi } catch { $gpuPowerInfo.Text = '显卡功率读取失败：' + $_.Exception.Message }
+        }
+        if ($expanded -and $current.Key -eq 'tools' -and $script:CalibrationDirty) {
+            Refresh-CalibrationPanel
+            $script:CalibrationDirty = $false
+        }
+    })
+}
+if ($script:SectionsByKey['tools'].Expanded) {
+    Refresh-CalibrationPanel
+    $script:CalibrationDirty = $false
+}
+
 $GpuPowerStatePath=Join-Path $LauncherData 'gpu-power-restore.json'
 $script:GpuPowerRows=@()
 function Update-GpuPowerSelection {
@@ -752,6 +825,7 @@ function Refresh-GpuPowerUi {
         $gpuPowerInfo.Text='未检测到支持功率上限读写的 NVIDIA 显卡'
         $gpuPowerWatts.Enabled=$false;$gpuPowerApply.Enabled=$false;$gpuPowerRestore.Enabled=$false
     }
+    $script:GpuPowerInitialized = $true
 }
 $gpuSelector.Add_SelectedIndexChanged({Update-GpuPowerSelection})
 $gpuPowerRefresh.Add_Click({try{Refresh-GpuPowerUi}catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'刷新显卡失败','OK','Error')|Out-Null}})
@@ -784,7 +858,9 @@ $gpuPowerRestore.Add_Click({
         $status.Text='显卡功率已恢复并读回确认。'
     } catch {Refresh-GpuPowerUi;[Windows.Forms.MessageBox]::Show($_.Exception.Message,'恢复显卡功率失败','OK','Error')|Out-Null}
 })
-try { Refresh-GpuPowerUi } catch { $gpuPowerInfo.Text='显卡功率读取失败：'+$_.Exception.Message }
+if ($script:SectionsByKey['gpu_power'].Expanded) {
+    try { Refresh-GpuPowerUi } catch { $gpuPowerInfo.Text='显卡功率读取失败：'+$_.Exception.Message }
+}
 
 $officialImport.Add_Click({
     try {

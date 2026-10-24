@@ -1,4 +1,4 @@
-# Shared visual system for the standalone Windows launcher.
+﻿# Shared visual system for the standalone Windows launcher.
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -71,6 +71,7 @@ function New-StrataSectionHeader {
     param(
         [Parameter(Mandatory=$true)][string]$Title,
         [string]$Subtitle = '',
+        [switch]$Collapsible,
         $Theme = (Get-StrataLauncherTheme)
     )
 
@@ -103,7 +104,49 @@ function New-StrataSectionHeader {
     [void]$panel.Controls.Add($bar)
     [void]$panel.Controls.Add($titleLabel)
     [void]$panel.Controls.Add($subtitleLabel)
+    if ($Collapsible) {
+        $toggle = [Windows.Forms.Button]::new()
+        $toggle.Name = 'SectionToggle'
+        $toggle.Text = '收起 ▲'
+        $toggle.Tag = 'button:Ghost'
+        $toggle.AccessibleName = "$Title 分组"
+        $toggle.Dock = 'Right'
+        $toggle.Width = 78
+        $toggle.TabStop = $true
+        [void]$panel.Controls.Add($toggle)
+    }
     return $panel
+}
+
+function Set-StrataSectionExpanded {
+    param(
+        [Parameter(Mandatory=$true)][Windows.Forms.TableLayoutPanel]$Layout,
+        [Parameter(Mandatory=$true)][Windows.Forms.Panel]$Header,
+        [Parameter(Mandatory=$true)][int]$FirstRow,
+        [Parameter(Mandatory=$true)][int]$LastRow,
+        [Parameter(Mandatory=$true)][bool]$Expanded
+    )
+
+    if ($FirstRow -lt 0 -or $LastRow -lt $FirstRow -or $LastRow -ge $Layout.RowStyles.Count) { throw 'Invalid section row range.' }
+    $Layout.SuspendLayout()
+    try {
+        foreach ($row in $FirstRow..$LastRow) {
+            $style = $Layout.RowStyles[$row]
+            $style.SizeType = if ($Expanded) { [Windows.Forms.SizeType]::AutoSize } else { [Windows.Forms.SizeType]::Absolute }
+            $style.Height = 0
+        }
+        foreach ($control in @($Layout.Controls)) {
+            $controlRow = $Layout.GetRow($control)
+            if ($controlRow -ge $FirstRow -and $controlRow -le $LastRow) { $control.Visible = $Expanded }
+        }
+        $toggle = @($Header.Controls.Find('SectionToggle', $false)) | Select-Object -First 1
+        if ($toggle) {
+            $toggle.Text = if ($Expanded) { '收起 ▲' } else { '展开 ▼' }
+            $toggle.AccessibleDescription = if ($Expanded) { '当前已展开，点击收起' } else { '当前已收起，点击展开' }
+        }
+    } finally {
+        $Layout.ResumeLayout($true)
+    }
 }
 
 function Set-StrataLauncherTheme {

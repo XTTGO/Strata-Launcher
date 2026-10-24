@@ -96,7 +96,9 @@ $installed = @(
     @{ Config='strata-unsloth-ud-iq4_xs.json'; Label='UD-IQ4_XS'; Suffix='|qwen3.8-flash-next-unsloth-ud-iq4_xs|262144|images'; Expected='CPU workers 15（校准采用；基准自动 23）' }
     @{ Config='strata-unsloth-ud-q4_k_xl.json'; Label='UD-Q4_K_XL'; Suffix='|qwen3.8-flash-next-unsloth-ud-q4_k_xl|262144|text'; Expected='CPU workers 自动 23（已实测，保留默认）' }
 )
+$checkedInstalled = 0
 foreach ($item in $installed) {
+    if (-not (Test-Path -LiteralPath $item.Config -PathType Leaf)) { continue }
     $installedConfig = Get-Content -LiteralPath $item.Config -Raw -Encoding UTF8 | ConvertFrom-Json
     $installedRecord = Find-CalibrationRecord $officialStore.calibration $item.Suffix
     $installedDetail = Find-CalibrationRecord $detailStore.records $item.Suffix
@@ -105,6 +107,8 @@ foreach ($item in $installed) {
     Assert-Contains $installedView.Details $item.Expected "$($item.Label) must show its measured CPU worker decision"
     Assert-Contains $installedView.Details '专家缓存：间隔 4 / 交换 96 / 衰减 0.70（已实测，保留默认）' "$($item.Label) must expand its measured expert-cache defaults"
     Assert-NotContains $installedView.Details '详细报告未保存' "$($item.Label) must not fall back to an incomplete historical display"
+    $checkedInstalled++
 }
+if ($checkedInstalled -eq 0) { throw 'FAIL: no installed calibration fixture is available' }
 
 'PASS: calibration view'

@@ -46,7 +46,7 @@ $card1Location = Convert-StrataGpuPciBusIdToWindowsLocation ([string]$card1[0].B
 if (-not $card0Location -or -not $card1Location) { throw 'UI smoke check requires valid PCI locations' }
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $process = Start-Process -FilePath $powershell -ArgumentList @(
-    '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"' + $launcher + '"')
+    '-NoProfile','-ExecutionPolicy','Bypass','-STA','-File',('"' + $launcher + '"'),'-ExpandAllSections'
 ) -WorkingDirectory $launcherRoot -WindowStyle Hidden -PassThru
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
