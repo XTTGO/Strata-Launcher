@@ -299,23 +299,31 @@ function Test-ProcessDescendant([int]$ChildId, [int]$AncestorId) {
     }
     return $false
 }
+function Get-StrataEnginePaths {
+    return @((Join-Path $Root 'engine\strata.exe'), (Join-Path $Root 'engine-dsv41\strata-dsv41.exe'))
+}
 function Find-StrataServer([int]$Port) {
     Initialize-StrataProcessTree
     $script:StopLookupDetail = ''
     # The native model engine is the most reliable signal; walk the full parent chain because cmd may sit above Python.
-    $enginePath = Join-Path $Root 'engine\strata.exe'
+    # Strata runs two engines: the Qwen one (engine\strata.exe) and DeepSeek's own (engine-dsv41\strata-dsv41.exe).
+    $enginePaths = @(Get-StrataEnginePaths)
     $byRoot = @{}
-    $engineList = @([StrataProcessTree]::ProcessIdsByName('strata.exe'))
+    $engineList = @([StrataProcessTree]::ProcessIdsByName('strata.exe')) + @([StrataProcessTree]::ProcessIdsByName('strata-dsv41.exe'))
     $diagnostics = [Collections.ArrayList]::new()
     foreach ($engineId in $engineList) {
         try {
             $actualEnginePath = [StrataProcessTree]::FullProcessImageName($engineId)
             if (-not $actualEnginePath) {
-                [void]$diagnostics.Add("无法读取 strata.exe PID $engineId 的完整路径，因此没有把它当作目标。")
+                [void]$diagnostics.Add("无法读取模型引擎 PID $engineId 的完整路径，因此没有把它当作目标。")
                 continue
             }
-            if (-not [string]::Equals([IO.Path]::GetFullPath($actualEnginePath), [IO.Path]::GetFullPath($enginePath), [StringComparison]::OrdinalIgnoreCase)) {
-                [void]$diagnostics.Add("发现 strata.exe PID $engineId，但路径不是本安装：$actualEnginePath")
+            $knownPath = $false
+            foreach ($candidate in $enginePaths) {
+                if ([string]::Equals([IO.Path]::GetFullPath($actualEnginePath), [IO.Path]::GetFullPath($candidate), [StringComparison]::OrdinalIgnoreCase)) { $knownPath = $true; break }
+            }
+            if (-not $knownPath) {
+                [void]$diagnostics.Add("发现模型引擎 PID $engineId，但路径不是本安装：$actualEnginePath")
                 continue
             }
             $pythonId=0; $pythonPath=''; $shellId=0; $cursor=$engineId; $chain=@($engineId)
@@ -335,7 +343,7 @@ function Find-StrataServer([int]$Port) {
             }
             $rootId=if ($shellId) {$shellId} else {$pythonId}
             if (-not $rootId) {
-                [void]$diagnostics.Add("D 盘 strata.exe PID $engineId 已确认，但父链中没有找到 Python 服务或 cmd 控制台。")
+                [void]$diagnostics.Add("本安装的模型引擎 PID $engineId 已确认，但父链中没有找到 Python 服务或 cmd 控制台。")
                 continue
             }
             if (-not $byRoot.ContainsKey($rootId)) {
@@ -343,7 +351,7 @@ function Find-StrataServer([int]$Port) {
             }
             [void]$byRoot[$rootId].EngineIds.Add($engineId)
             foreach ($chainId in $chain) { if (-not $byRoot[$rootId].Chain.Contains($chainId)) { [void]$byRoot[$rootId].Chain.Add($chainId) } }
-        } catch { [void]$diagnostics.Add("无法读取 strata.exe PID $engineId 的映像或父链：$($_.Exception.Message)") }
+        } catch { [void]$diagnostics.Add("无法读取模型引擎 PID $engineId 的映像或父链：$($_.Exception.Message)") }
     }
     if ($byRoot.Count -eq 1) { return @($byRoot.Values)[0] }
     if ($byRoot.Count -gt 1) {
@@ -560,7 +568,7 @@ if ($isDeepSeek) {
 $parallelHint=if($isDeepSeek){'DeepSeek 引擎暂不支持并发请求；官方会忽略 --parallel'}else{'并发会增加显存和内存占用'}
 $parallel = Make-Combo @('1','2','3','4') ([string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})); Add-Row $layout $row '并行请求数' $parallel $parallelHint
 if ($isDeepSeek) { $parallel.Enabled=$false; $parallel.SelectedItem='1' }
-Add-Section 'gpu_placement' 'GPU PLACEMENT · NVIDIA' '为当前模型指定 Main / Helper / Off；多卡按模型层分工'
+Add-Section 'gpu_placement' 'GPU PLACEMENT · NVIDIA' $(if($isDeepSeek){'选择参与 DeepSeek 推理的显卡；引擎自行安排专家分层'}else{'为当前模型指定 Main / Helper / Off；多卡按模型层分工'})
 $gpuPlacementCards=@(Get-StrataNvidiaPlacementCards)
 $gpuPlacementBuild=$null
 try {
@@ -568,31 +576,57 @@ try {
     if (Test-Path -LiteralPath $buildPath -PathType Leaf) { $gpuPlacementBuild=Get-Content -LiteralPath $buildPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 } catch { $gpuPlacementBuild=$null }
 $canEditGpuPlacement=Test-StrataCudaPlacementBuild -Build $gpuPlacementBuild -Cards $gpuPlacementCards
-$gpuPlacementEdit=[Windows.Forms.CheckBox]::new(); $gpuPlacementEdit.Text='修改当前模型的推理显卡分配'; $gpuPlacementEdit.Enabled=($canEditGpuPlacement -and -not $isDeepSeek)
-$gpuPlacementHint=if($isDeepSeek){'DeepSeek 引擎自行安排专家分层；显卡列表由官方 setup 写入，启动器不改动。'}elseif($canEditGpuPlacement){'未勾选时保留模型原有 GPU 配置；勾选后选择每张卡的角色，保存或启动时生效。'}else{'未检测到与当前 CUDA 引擎兼容的 NVIDIA 显卡；原有 GPU 配置保持不变。'}
-Add-Row $layout $row '推理显卡' $gpuPlacementEdit $gpuPlacementHint
-$gpuPlacementSelectors=@{}
-$gpuPlacementRoles=@(Get-StrataGpuPlacementRoles -Config $cfg -Cards $gpuPlacementCards)
-foreach($card in $gpuPlacementCards){
-    $role=@($gpuPlacementRoles | Where-Object Index -EQ $card.Index | Select-Object -First 1)
-    $selectedRole=if($role.Count){[string]$role[0].Role}else{'off'}
-    if($selectedRole -notin @('main','helper','off')){$selectedRole='off'}
-    $cardSupported=Test-StrataCudaPlacementCard -Build $gpuPlacementBuild -Card $card
-    if(-not $cardSupported){$selectedRole='off'}
-    $roleControl=Make-Combo $(if($cardSupported){@('Off','Helper','Main')}else{@('Off')}) ($selectedRole.Substring(0,1).ToUpperInvariant()+$selectedRole.Substring(1))
-    $roleControl.Enabled=$false
-    $roleControl.Tag=$cardSupported
-    $gpuPlacementSelectors[[int]$card.Index]=$roleControl
-    $memoryGiB=[Math]::Round([double]$card.MemoryMiB/1024,1)
-    $pciLocation=Convert-StrataGpuPciBusIdToWindowsLocation ([string]$card.BusId)
-    $cardLabel=if($pciLocation){
-        if($pciLocation.Segment -eq 0){"GPU $($card.Index) · 总线 $($pciLocation.Bus)"}else{"GPU $($card.Index) · 段 $($pciLocation.Segment) 总线 $($pciLocation.Bus)"}
-    }else{"GPU $($card.Index) · PCI $($card.BusId)"}
-    $cardHint=if($pciLocation){"$($card.Name) · $memoryGiB GiB · $($pciLocation.Text)"}else{"$($card.Name) · $memoryGiB GiB · PCI $($card.BusId)"}
-    if(-not $cardSupported){$cardHint+=' · 当前 CUDA 引擎不支持'}
-    Add-Row $layout $row $cardLabel $roleControl $cardHint
+if ($isDeepSeek) {
+    $deepSeekInitialCards=@()
+    if ($null -ne $cfg.gpu) { $deepSeekInitialCards=@($cfg.gpu | ForEach-Object { [int]$_ }) }
+    $deepSeekAllCards=($deepSeekInitialCards.Count -eq 0)
+    $deepSeekCardBoxes=@{}
+    foreach($card in $gpuPlacementCards){
+        $memoryGiB=[Math]::Round([double]$card.MemoryMiB/1024,1)
+        $pciLocation=Convert-StrataGpuPciBusIdToWindowsLocation ([string]$card.BusId)
+        $cardLabel=if($pciLocation){
+            if($pciLocation.Segment -eq 0){"GPU $($card.Index) · 总线 $($pciLocation.Bus)"}else{"GPU $($card.Index) · 段 $($pciLocation.Segment) 总线 $($pciLocation.Bus)"}
+        }else{"GPU $($card.Index) · PCI $($card.BusId)"}
+        $cardHint=if($pciLocation){"$($card.Name) · $memoryGiB GiB · $($pciLocation.Text)"}else{"$($card.Name) · $memoryGiB GiB · PCI $($card.BusId)"}
+        $box=[Windows.Forms.CheckBox]::new(); $box.Text='参与推理'
+        $enough = ([double]$card.MemoryMiB -ge 8192)
+        $box.Checked=($enough -and ($deepSeekAllCards -or ($deepSeekInitialCards -contains [int]$card.Index)))
+        $box.Enabled=$enough
+        if (-not $enough) { $cardHint+=' · 显存不足 8 GiB，不能参与' }
+        $deepSeekCardBoxes[[int]$card.Index]=$box
+        Add-Row $layout $row $cardLabel $box $cardHint
+    }
+    $tpChoices=@('自动（引擎默认）','1','2')
+    $tpSelected=if([string]$deepSeekSettings.Tp -in @('1','2')){[string]$deepSeekSettings.Tp}else{'自动（引擎默认）'}
+    $dsTp=Make-Combo $tpChoices $tpSelected
+    Add-Row $layout $row '张量并行 --tp' $dsTp '自动 = 引擎默认（2 卡及以上为 2）；1 = 纯层切分，4 卡以上 AMD 时官方建议 1'
+} else {
+    $gpuPlacementEdit=[Windows.Forms.CheckBox]::new(); $gpuPlacementEdit.Text='修改当前模型的推理显卡分配'; $gpuPlacementEdit.Enabled=$canEditGpuPlacement
+    $gpuPlacementHint=if($canEditGpuPlacement){'未勾选时保留模型原有 GPU 配置；勾选后选择每张卡的角色，保存或启动时生效。'}else{'未检测到与当前 CUDA 引擎兼容的 NVIDIA 显卡；原有 GPU 配置保持不变。'}
+    Add-Row $layout $row '推理显卡' $gpuPlacementEdit $gpuPlacementHint
+    $gpuPlacementSelectors=@{}
+    $gpuPlacementRoles=@(Get-StrataGpuPlacementRoles -Config $cfg -Cards $gpuPlacementCards)
+    foreach($card in $gpuPlacementCards){
+        $role=@($gpuPlacementRoles | Where-Object Index -EQ $card.Index | Select-Object -First 1)
+        $selectedRole=if($role.Count){[string]$role[0].Role}else{'off'}
+        if($selectedRole -notin @('main','helper','off')){$selectedRole='off'}
+        $cardSupported=Test-StrataCudaPlacementCard -Build $gpuPlacementBuild -Card $card
+        if(-not $cardSupported){$selectedRole='off'}
+        $roleControl=Make-Combo $(if($cardSupported){@('Off','Helper','Main')}else{@('Off')}) ($selectedRole.Substring(0,1).ToUpperInvariant()+$selectedRole.Substring(1))
+        $roleControl.Enabled=$false
+        $roleControl.Tag=$cardSupported
+        $gpuPlacementSelectors[[int]$card.Index]=$roleControl
+        $memoryGiB=[Math]::Round([double]$card.MemoryMiB/1024,1)
+        $pciLocation=Convert-StrataGpuPciBusIdToWindowsLocation ([string]$card.BusId)
+        $cardLabel=if($pciLocation){
+            if($pciLocation.Segment -eq 0){"GPU $($card.Index) · 总线 $($pciLocation.Bus)"}else{"GPU $($card.Index) · 段 $($pciLocation.Segment) 总线 $($pciLocation.Bus)"}
+        }else{"GPU $($card.Index) · PCI $($card.BusId)"}
+        $cardHint=if($pciLocation){"$($card.Name) · $memoryGiB GiB · $($pciLocation.Text)"}else{"$($card.Name) · $memoryGiB GiB · PCI $($card.BusId)"}
+        if(-not $cardSupported){$cardHint+=' · 当前 CUDA 引擎不支持'}
+        Add-Row $layout $row $cardLabel $roleControl $cardHint
+    }
+    $gpuPlacementEdit.Add_CheckedChanged({foreach($selector in $gpuPlacementSelectors.Values){$selector.Enabled=($gpuPlacementEdit.Checked -and [bool]$selector.Tag)}})
 }
-$gpuPlacementEdit.Add_CheckedChanged({foreach($selector in $gpuPlacementSelectors.Values){$selector.Enabled=($gpuPlacementEdit.Checked -and [bool]$selector.Tag)}})
 Add-Section 'network' 'NETWORK & ACCESS' '端口、局域网与启动选项'
 $port = Make-Num ([string]$cfg.port) 1024 65535 1; Add-Row $layout $row '服务端口' $port '默认 8080；监听范围由下方局域网开关决定'
 $lanAccess = [Windows.Forms.CheckBox]::new(); $lanAccess.Text='LAN access：允许局域网设备访问'; $lanAccess.Checked=(Get-StrataLanMode $LanModePath)
@@ -659,6 +693,7 @@ $calibrationState=[Windows.Forms.Label]::new(); $calibrationState.AutoSize=$true
 $calibrationDetails=[Windows.Forms.Label]::new(); $calibrationDetails.Tag='muted'; $calibrationDetails.AutoSize=$true; $calibrationDetails.Margin=[Windows.Forms.Padding]::new(4,2,8,5); $calibrationDetails.MaximumSize=[Drawing.Size]::new(610,0)
 $calibrate = [Windows.Forms.Button]::new(); $calibrate.Text='保存并校准'; $calibrate.Width=130; $calibrate.Height=30; $calibrate.Anchor='Right'
 if ($isOwnPath) { $calibrate.Enabled=$false; $calibrate.Text='独立引擎无需校准' }
+if ($isDeepSeek) { $calibrate.Enabled=$false; $calibrate.Text='DeepSeek 用官方调优' }
 [void]$calibrationLayout.Controls.Add($calibrationState,0,0); [void]$calibrationLayout.Controls.Add($calibrationDetails,0,1); [void]$calibrationLayout.Controls.Add($calibrate,1,0); $calibrationLayout.SetRowSpan($calibrate,2)
 $calibrationGroup.Controls.Add($calibrationLayout)
 $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new([Windows.Forms.SizeType]::AutoSize)); [void]$layout.Controls.Add($calibrationGroup,0,$row); $layout.SetColumnSpan($calibrationGroup,3); $row++
@@ -687,6 +722,12 @@ $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.A
 $script:Sections[$script:Sections.Count - 1].LastRow = $row - 1
 
 function Refresh-CalibrationPanel {
+    if ($isDeepSeek) {
+        $calibrationGroup.Text='DeepSeek-V4.1-Flash'
+        $calibrationState.Text='用官方调优器，不在启动器校准'
+        $calibrationDetails.Text='官方提供 strata launch --tune（tools/dsv41/tune.py）；启动器只保存上面的运行参数。'
+        return
+    }
     if ($isOwnPath) {
         $calibrationGroup.Text='Qwen3.6 独立引擎'
         $calibrationState.Text='不适用 Flash-Next 性能校准'
@@ -1014,6 +1055,7 @@ function Save-Settings {
             DsparkConf   = $dsConf.Text.Trim()
             SsdCache     = $dsSsd.Text.Trim()
             PrefillChunk = $(if ([decimal]$dsPrefill.Value -gt 0) { NText $dsPrefill } else { '' })
+            Tp           = $(if ($dsTp.SelectedIndex -le 0) { '' } else { ([string]$dsTp.SelectedItem).Trim() })
         }
         $confValue=[double]0
         if ($deepSeekSave.DsparkConf -and (-not [double]::TryParse($deepSeekSave.DsparkConf,[ref]$confValue) -or $confValue -lt 0 -or $confValue -gt 1)) {
@@ -1027,6 +1069,18 @@ function Save-Settings {
         Set-StrataDeepSeekArgs -List $a -Settings $deepSeekSave | Out-Null
         if ($new.vision) { Atomic-Json $visionPath $new.vision; $new.PSObject.Properties.Remove('vision') }
         $new.PSObject.Properties.Remove('parallel')
+        $selectedCards=@()
+        foreach ($index in $deepSeekCardBoxes.Keys) { if ($deepSeekCardBoxes[$index].Checked) { $selectedCards += [int]$index } }
+        $initialCards=@()
+        if ($null -ne $cfg.gpu) { $initialCards=@($cfg.gpu | ForEach-Object { [int]$_ }) }
+        $sameSelection = if ($initialCards.Count -eq 0) {
+            ($selectedCards.Count -eq $gpuPlacementCards.Count)
+        } else {
+            ((@($selectedCards | Sort-Object) -join ',') -eq (@($initialCards | Sort-Object) -join ','))
+        }
+        if (-not $sameSelection) {
+            $new = Set-StrataDeepSeekGpuConfig -Config $new -Cards $gpuPlacementCards -CurrentCards @(Get-StrataNvidiaPlacementCards) -Selected ([int[]]$selectedCards)
+        }
     } elseif ($isOwnPath) {
         $a = [Collections.ArrayList]::new()
         foreach ($item in (Set-StrataNativeContextArgs -ArgsList @($new.args) -MaxContext $contextValue)) { [void]$a.Add([string]$item) }
@@ -1055,12 +1109,14 @@ function Save-Settings {
     }
     $new.args = @($a); $new.port = [int]$port.Value
     Sync-StrataUserArgsForSave -Config $new -OriginalArgs $initialEngineArgs
-    if($gpuPlacementEdit.Checked){
-        $selectedRoles=@{}
-        foreach($card in $gpuPlacementCards){$selectedRoles[[int]$card.Index]=([string]$gpuPlacementSelectors[[int]$card.Index].SelectedItem).ToLowerInvariant()}
-        $new=Set-StrataGpuPlacementConfig -Config $new -Cards $gpuPlacementCards -CurrentCards @(Get-StrataNvidiaPlacementCards) -Roles $selectedRoles -Build $gpuPlacementBuild
-    } else {
-        if($new.PSObject.Properties['gpu_cards']){Assert-StrataGpuPlacementIdentity -Config $new -Cards @(Get-StrataNvidiaPlacementCards)}
+    if (-not $isDeepSeek) {
+        if($gpuPlacementEdit.Checked){
+            $selectedRoles=@{}
+            foreach($card in $gpuPlacementCards){$selectedRoles[[int]$card.Index]=([string]$gpuPlacementSelectors[[int]$card.Index].SelectedItem).ToLowerInvariant()}
+            $new=Set-StrataGpuPlacementConfig -Config $new -Cards $gpuPlacementCards -CurrentCards @(Get-StrataNvidiaPlacementCards) -Roles $selectedRoles -Build $gpuPlacementBuild
+        } else {
+            if($new.PSObject.Properties['gpu_cards']){Assert-StrataGpuPlacementIdentity -Config $new -Cards @(Get-StrataNvidiaPlacementCards)}
+        }
     }
     if ([int]$parallel.SelectedItem -le 1) { $new.PSObject.Properties.Remove('parallel') } else { $new | Add-Member -NotePropertyName parallel -NotePropertyValue ([int]$parallel.SelectedItem) -Force }
     $sampling = [pscustomobject]@{ temperature=[double](NText $temp); top_p=[double](NText $topP); top_k=[int]$topK.Value; min_p=[double](NText $minP); presence_penalty=[double](NText $presence); repetition_penalty=[double](NText $repeat); frequency_penalty=[double](NText $freq); penalty_last_n=[int]$lastN.Value }
@@ -1143,7 +1199,7 @@ $stop.Add_Click({
             [Windows.Forms.MessageBox]::Show("没有找到可安全结束的 Strata 进程树。没有结束任何进程。$detail",'未找到 Strata 服务','OK','Information') | Out-Null
             return
         }
-        $engineText=if ($target.EngineIds.Count) { 'strata.exe PID：' + ($target.EngineIds -join ', ') } else { '模型引擎当前未加载（lazy/unloaded）' }
+        $engineText=if ($target.EngineIds.Count) { '模型引擎 PID：' + ($target.EngineIds -join ', ') } else { '模型引擎当前未加载（lazy/unloaded）' }
         $shellText=if ($target.ShellId) { "会同时关闭 Strata 的 cmd 控制台（PID $($target.ShellId)）。" } else { '没有关联的 cmd 控制台。' }
         $pythonText=if($target.ProcessId){"Python PID $($target.ProcessId)"}else{'Python 服务未出现在父链中，按 Strata 专属 cmd 控制台识别'}
         $answer=[Windows.Forms.MessageBox]::Show("确认停止 Strata 服务及整个关联进程树？`r`n$pythonText`r`n$engineText`r`n根进程 PID：$($target.StopId)`r`n$($target.Executable)`r`n$shellText`r`n`r`n正在生成的回答会中断。",'停止 Strata','YesNo','Warning')
@@ -1160,7 +1216,13 @@ $stop.Add_Click({
             try {
                 $engineImage=[StrataProcessTree]::FullProcessImageName([int]$engineId)
                 $belongs=if($target.ShellId){Test-ProcessDescendant $engineId $target.ShellId}else{Test-ProcessDescendant $engineId $target.ProcessId}
-                if (-not $engineImage -or -not [string]::Equals([IO.Path]::GetFullPath($engineImage),[IO.Path]::GetFullPath((Join-Path $Root 'engine\strata.exe')),[StringComparison]::OrdinalIgnoreCase) -or -not $belongs) { throw 'engine process changed' }
+                $knownImage=$false
+                if ($engineImage) {
+                    foreach ($candidate in @(Get-StrataEnginePaths)) {
+                        if ([string]::Equals([IO.Path]::GetFullPath($engineImage),[IO.Path]::GetFullPath($candidate),[StringComparison]::OrdinalIgnoreCase)) { $knownImage=$true; break }
+                    }
+                }
+                if (-not $engineImage -or -not $knownImage -or -not $belongs) { throw 'engine process changed' }
             } catch { throw '模型引擎进程在确认期间发生变化；为避免结束错误进程，本次已取消。' }
         }
         if (-not $target.EngineIds.Count) {

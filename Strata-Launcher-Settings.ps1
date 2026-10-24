@@ -55,7 +55,7 @@ function Sync-StrataUserArgsForSave {
     param($Config, [string[]]$OriginalArgs)
     $managed = @('--max-context','--kv','--kv-resident','--vram-reserve-mib','--pool-workers',
                  '--rope-scaling','--rope-scale','--vision','--reserve-mib','--cpu-threads',
-                 '--dspark','--dspark-conf','--ssd-cache','--prefill-chunk')
+                 '--dspark','--dspark-conf','--ssd-cache','--prefill-chunk','--tp')
     $before = @(Split-StrataEngineArgs -ArgsList $OriginalArgs)
     $after = @(Split-StrataEngineArgs -ArgsList @($Config.args))
     $user = @(Split-StrataEngineArgs -ArgsList @($Config.user_args))
@@ -329,6 +329,7 @@ function Get-StrataDeepSeekSettings {
         DsparkConf   = [string](& $read '--dspark-conf' '')
         SsdCache     = [string](& $read '--ssd-cache' '')
         PrefillChunk = [string](& $read '--prefill-chunk' '')
+        Tp           = [string](& $read '--tp' '')
     }
 }
 
@@ -349,5 +350,6 @@ function Set-StrataDeepSeekArgs {
     Set-StrataArgPair -List $List -Flag '--dspark-conf' -Value $Settings.DsparkConf
     Set-StrataArgPair -List $List -Flag '--ssd-cache' -Value $Settings.SsdCache
     Set-StrataArgPair -List $List -Flag '--prefill-chunk' -Value $Settings.PrefillChunk
+    Set-StrataArgPair -List $List -Flag '--tp' -Value $Settings.Tp
     return $List
 }

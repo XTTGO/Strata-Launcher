@@ -167,3 +167,34 @@ function Set-StrataGpuPlacementConfig($Config, [object[]]$Cards, [object[]]$Curr
     }
     return $result
 }
+
+function Set-StrataDeepSeekGpuConfig($Config, [object[]]$Cards, [object[]]$CurrentCards, [int[]]$Selected) {
+    # DeepSeek's engine balances its own expert placement across the cards it sees, so the launcher only chooses
+    # which cards take part: the server turns config "gpu" into CUDA_VISIBLE_DEVICES. No gpu_roles / layer_split.
+    $original = @($Cards | Sort-Object Index)
+    $current = @($CurrentCards | Sort-Object Index)
+    if ($original.Count -ne $current.Count) { throw '显卡列表已变化，请重新打开启动器后再设置。' }
+    for ($i = 0; $i -lt $original.Count; $i++) {
+        if ($original[$i].Index -ne $current[$i].Index -or
+            $original[$i].Uuid -ne $current[$i].Uuid -or
+            $original[$i].BusId -ne $current[$i].BusId) {
+            throw '显卡编号或身份已变化，请重新打开启动器后再设置。'
+        }
+    }
+    $picked = @($Selected | ForEach-Object { [int]$_ } | Sort-Object -Unique)
+    if (-not $picked.Count) { throw '至少选择一张显卡参与 DeepSeek 推理。' }
+    foreach ($index in $picked) {
+        $card = @($original | Where-Object Index -EQ $index | Select-Object -First 1)
+        if (-not $card.Count) { throw "GPU $index 不在当前显卡列表中。" }
+        if ([double]$card[0].MemoryMiB -lt 8192) {
+            $gib = [Math]::Round([double]$card[0].MemoryMiB / 1024, 1)
+            throw "GPU $index 只有 $gib GiB 显存；DeepSeek 至少需要 8 GiB。"
+        }
+    }
+    $result = $Config | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    $result | Add-Member -NotePropertyName gpu -NotePropertyValue $(if ($picked.Count -eq 1) { $picked[0] } else { [int[]]$picked }) -Force
+    foreach ($name in @('gpu_roles','gpu_order','gpu_cards','layer_split')) {
+        $result.PSObject.Properties.Remove($name)
+    }
+    return $result
+}

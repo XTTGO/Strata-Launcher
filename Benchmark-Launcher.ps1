@@ -87,7 +87,17 @@ function Save-UiSettings {
 }
 
 $models=@(Invoke-RunnerJson @('list-models','--root',$Root))
-if(-not $models.Count){[Windows.Forms.MessageBox]::Show('没有找到有效的 strata-*.json 模型配置。','无法打开 Benchmark','OK','Error')|Out-Null; return}
+# DeepSeek-V4.1-Flash runs its own engine and its own tuning path; the Qwen-oriented benchmark suite does not apply.
+$models=@($models | Where-Object {
+    $entryExe=[string]$_.exe
+    $entryConfig=[string]$_.config_path
+    $isDs = $entryExe -match 'strata-dsv41|engine-dsv41'
+    if (-not $isDs -and $entryConfig -and (Test-Path -LiteralPath $entryConfig -PathType Leaf)) {
+        try { $c=Get-Content -LiteralPath $entryConfig -Raw -Encoding UTF8 | ConvertFrom-Json; $isDs = [string]$c.arch -eq 'deepseek41' } catch { }
+    }
+    -not $isDs
+})
+if(-not $models.Count){[Windows.Forms.MessageBox]::Show('没有找到可用于 Benchmark 的模型配置。DeepSeek-V4.1-Flash 暂不支持批量 Benchmark。','无法打开 Benchmark','OK','Error')|Out-Null; return}
 $script:PresetSpecs=Invoke-RunnerJson @('list-presets')
 $saved=Load-UiSettings
 

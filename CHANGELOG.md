@@ -1,6 +1,15 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前版本为 `0.1.7.4`；针对本机 Strata `v0.2.4` 源码安装版完成校验，Qwen 预编译引擎为 `0.1.48`。
+启动器版本独立于 Strata 官方版本。当前开发版本为 `0.1.7.5-dev.1`（未发布），以 `0.1.7.4` 为最后正式版；针对本机 Strata `v0.2.4` 源码安装版校验。
+
+## 0.1.7.5-dev.1 — 2026-10-24（未发布）
+
+- 按“按模型识别、只启用受支持项”的方式补齐 DeepSeek 适配，逐项对照见 `docs/deepseek-support-matrix.md`。
+- 多卡：DeepSeek 可选择参与推理的显卡（写配置 `gpu`，服务器据此设置可见显卡），不再写 Qwen 的 `gpu_roles`/`gpu_order`/`layer_split`；新增张量并行 `--tp`（自动/1/2）。
+- 停止服务：进程树同时识别 `engine\strata.exe` 与 `engine-dsv41\strata-dsv41.exe`。
+- 性能校准：DeepSeek 下禁用并提示使用官方 `strata launch --tune`。
+- 批量 Benchmark：DeepSeek 模型不再出现在模型列表（Qwen 口径的上下文/Needle/并发假设不适用）。
+- 验证：139 个 Python 测试、35 个 PowerShell 测试通过；用临时 DeepSeek 配置确认界面显示“参与推理”“张量并行 --tp”，校准区显示官方调优提示。
 
 ## 0.1.7.4 — 2026-10-24
 
