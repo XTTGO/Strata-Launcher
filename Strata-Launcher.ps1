@@ -567,12 +567,27 @@ $initialContextItem=Context-Item $initialContext
 if ($script:ContextItems -notcontains $initialContextItem) { $script:ContextItems += $initialContextItem }
 $ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方默认 8192；模型原生 64K，元数据支持 YaRN ×16 到 1M；官方只验证到 8192，更大更占显存/内存'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
 if ($isDeepSeek) {
+    # The "as fast as it gets" preset needs a figure this PC can actually lend; without one the preset is not
+    # offered at all, so no machine is ever handed a number that came from somewhere else.
+    $script:DsSsdSuggested = Get-StrataSuggestedSsdCache
+    $dsPresetItems = @('自动（均衡）')
+    if ($script:DsSsdSuggested -gt 0) { $dsPresetItems += '尽可能快（多吃内存）' }
+    $dsPresetItems += @('省内存（少占内存）','自定义')
+    $dsPreset = Make-Combo $dsPresetItems '自动（均衡）'; Add-Row $layout $row '性能预设' $dsPreset '一次写好下面四项；手改任一项会自动显示「自定义」。'
     $dsReserve = Make-Num ([string]$deepSeekSettings.ReserveMib) 0 32768 128; Add-Row $layout $row '显存预留 MiB' $dsReserve '引擎的 --reserve-mib；0 = 自动（不写该参数）'
     $dsThreads = Make-Num ([string]$deepSeekSettings.CpuThreads) 0 128 1; Add-Row $layout $row 'CPU 线程数' $dsThreads '引擎的 --cpu-threads；0 = 引擎自动'
     $dsDspark = Make-Combo @('auto','on','off') ([string]$deepSeekSettings.Dspark); Add-Row $layout $row 'DSpark 草稿' $dsDspark 'auto：专家放不进显存时不加载草稿；off 仍会加载，官方不建议'
     $dsConf = [Windows.Forms.TextBox]::new(); $dsConf.Text=[string]$deepSeekSettings.DsparkConf; $dsConf.Width=120; Add-Row $layout $row 'DSpark 置信度' $dsConf '留空 = 保留官方值/引擎默认（IST-DAS 官方写 0.65）；0 = 关闭草稿'
-    $dsSsd = [Windows.Forms.TextBox]::new(); $dsSsd.Text=[string]$deepSeekSettings.SsdCache; Add-Row $layout $row 'SSD 专家缓存' $dsSsd '留空 = 引擎自动（auto）；也可填 GB 数字'
-    $dsPrefill = Make-Num ([string]$deepSeekSettings.PrefillChunk) 0 65536 256; Add-Row $layout $row '预填充分块' $dsPrefill '引擎的 --prefill-chunk；0 = 引擎自动'
+    $dsSsdHint = '留空 = 引擎自动（其上限是 48 GB）；填 GB 数字 = 显存放不下的专家改从内存读取、不再读盘'
+    if ($script:DsSsdSuggested -gt 0) { $dsSsdHint += "；本机可填 $($script:DsSsdSuggested) GB（可用内存减 12 GB 与物理内存六成取小，保存时按当时的数值重算）" }
+    else { $dsSsdHint += '；本机可用内存偏少，建议留空交给引擎' }
+    $dsSsd = [Windows.Forms.TextBox]::new(); $dsSsd.Text=[string]$deepSeekSettings.SsdCache; Add-Row $layout $row 'SSD 专家缓存' $dsSsd $dsSsdHint
+    $dsPolicy = Make-Combo @('默认','lru','lfu','lfu→lru') (Get-StrataSsdPolicyItem ([string]$deepSeekSettings.SsdPolicy)); Add-Row $layout $row '专家缓存淘汰' $dsPolicy '默认 = 引擎的 lru；lfu 护住反复命中的热专家（缓存装不下全部专家时更划算）；lfu→lru 先比命中次数、同分再看时间'
+    $dsMmap = Make-Combo @('默认','auto','on','off') (Get-StrataMmapItem ([string]$deepSeekSettings.MmapExperts)); Add-Row $layout $row '专家读盘方式' $dsMmap '默认/auto = 显存放不下的专家就地读（省内存、吃盘）；on = 强制就地读；off = 能放下的全拷进内存（省盘，选它会自动把专家缓存置 0）'
+    $dsVram = Make-Num ([string]$deepSeekSettings.VramExperts) 0 1 0.05; Add-Row $layout $row '显存专家份额' $dsVram '0 = 引擎默认（用满）；0.9 = 只拿九成显存额度放专家，给长上下文和桌面留余量；范围 0–1'
+    $dsPrefill = Make-Num ([string]$deepSeekSettings.PrefillChunk) 0 65536 256; Add-Row $layout $row '预填充分块' $dsPrefill '引擎的 --prefill-chunk；0 = 引擎自动；越大越省读盘次数，越占显存缓冲'
+    $dsDblock = Make-Num ([string]$deepSeekSettings.DsparkBlock) 0 8 1; Add-Row $layout $row 'DSpark 草稿块' $dsDblock '0 = 包内默认；官方调优会试 3（草稿更短、命中更高）；范围 0–8'
+    Connect-StrataDeepSeekPresetControls -Selector $dsPreset -Controls ([ordered]@{ Ssd = $dsSsd; Policy = $dsPolicy; Mmap = $dsMmap; Vram = $dsVram; DsparkBlock = $dsDblock }) -SsdCacheGb $script:DsSsdSuggested
 } else {
     $kv = Make-Combo @('int8','q4_0','k8v4') ([string](Arg-Value $cfg.args '--kv' 'int8')); Add-Row $layout $row 'KV cache 格式' $kv '更省显存的格式可能影响速度/质量'
     $kvResident = Make-Combo @('8192','16384','32768','65536','关闭') ([string](Arg-Value $cfg.args '--kv-resident' '32768')); Add-Row $layout $row '驻留 KV token' $kvResident '窗口越大通常越占显存'
@@ -1072,14 +1087,30 @@ function Save-Settings {
     $contextValue=Context-Value $ctx.SelectedItem
     if ($isDeepSeek) {
         # dsv41 rejects unknown flags, so save only its own arguments and keep the official ones as they are.
+        # A figure the launcher suggested (not one the user typed) is recomputed here against the memory free
+        # right now, so the saved number belongs to this machine at this moment rather than to the PC the
+        # window was opened on.  A hand-typed figure is never touched.
+        $ssdText = $dsSsd.Text.Trim()
+        if ($script:DsSsdSuggested -gt 0 -and $ssdText -eq [string]$script:DsSsdSuggested) {
+            $freshSuggestion = Get-StrataSuggestedSsdCache
+            if ($freshSuggestion -gt 0 -and $freshSuggestion -ne $script:DsSsdSuggested) {
+                $ssdText = [string]$freshSuggestion
+                $dsSsd.Text = $ssdText
+                $script:DsSsdSuggested = $freshSuggestion
+            }
+        }
         $deepSeekSave=[pscustomobject]@{
             Context      = $contextValue
             ReserveMib   = $(if ([decimal]$dsReserve.Value -gt 0) { NText $dsReserve } else { '' })
             CpuThreads   = $(if ([decimal]$dsThreads.Value -gt 0) { NText $dsThreads } else { '' })
             Dspark       = [string]$dsDspark.SelectedItem
             DsparkConf   = $dsConf.Text.Trim()
-            SsdCache     = $dsSsd.Text.Trim()
+            SsdCache     = $ssdText
+            SsdPolicy    = Get-StrataSsdPolicyValue ([string]$dsPolicy.SelectedItem)
+            MmapExperts  = Get-StrataMmapValue ([string]$dsMmap.SelectedItem)
+            VramExperts  = $(if ([decimal]$dsVram.Value -gt 0) { NText $dsVram } else { '' })
             PrefillChunk = $(if ([decimal]$dsPrefill.Value -gt 0) { NText $dsPrefill } else { '' })
+            DsparkBlock  = $(if ([decimal]$dsDblock.Value -gt 0) { NText $dsDblock } else { '' })
             Tp           = $(if ($dsTp.SelectedIndex -le 0) { '' } else { ([string]$dsTp.SelectedItem).Trim() })
         }
         $confValue=[double]0
@@ -1091,6 +1122,7 @@ function Save-Settings {
         if ($deepSeekSave.SsdCache -and (-not [double]::TryParse($deepSeekSave.SsdCache,[ref]$ssdValue) -or $ssdValue -lt 0)) {
             throw 'SSD 专家缓存必须填 GB 数字，或留空表示自动。'
         }
+        if ($ssdValue -gt 1024) { throw 'SSD 专家缓存最多填 1024 GB。' }
         Set-StrataDeepSeekArgs -List $a -Settings $deepSeekSave | Out-Null
         if ($new.vision) { Atomic-Json $visionPath $new.vision; $new.PSObject.Properties.Remove('vision') }
         $new.PSObject.Properties.Remove('parallel')

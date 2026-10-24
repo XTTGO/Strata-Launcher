@@ -1,4 +1,4 @@
-# DeepSeek 支持矩阵（启动器 v0.1.7.5）
+# DeepSeek 支持矩阵（启动器 v0.1.8）
 
 本机 Strata 同时存在两个引擎，启动器按当前模型配置识别，互不干扰：
 
@@ -21,8 +21,13 @@
 | 显存预留 | ✅ 支持 | `--reserve-mib`（Qwen 的 `--vram-reserve-mib` 不适用） |
 | CPU 线程数 | ✅ 支持 | `--cpu-threads`（Qwen 的 `--pool-workers` 不适用） |
 | DSpark 草稿 | ✅ 支持 | `--dspark auto/on/off`、`--dspark-conf` 0–1；官方没写时不补默认值 |
-| SSD 专家缓存 | ✅ 支持 | `--ssd-cache`；留空 = 引擎自动 |
+| SSD 专家缓存 | ✅ 支持 | `--ssd-cache`；留空 = 引擎自动（其内部上限 48 GB），也可填 GB（≤1024） |
+| 专家缓存淘汰 | ✅ 支持 | `--ssd-policy lru/lfu/lfu→lru`；留空 = 引擎默认（lru） |
+| 专家读盘方式 | ✅ 支持 | `--mmap-experts auto/on/off`；`off` 把放不下的专家整块拷进内存，启动器同时把 `--ssd-cache` 置 0（两条路线都占内存，互斥） |
+| 显存专家份额 | ✅ 支持 | `--vram-experts` 0–1，0 = 引擎用满；留余量给长上下文和桌面 |
 | 预填充分块 | ✅ 支持 | `--prefill-chunk`；0 = 引擎自动 |
+| DSpark 草稿块 | ✅ 支持 | `--dspark-block` 0–8；0 = 包内默认 |
+| 性能预设 | ✅ 新增 | 自动（均衡）/ 尽可能快（min(可用内存−12 GB, 物理内存×0.6) + LFU，保存时重算）/ 省内存（关缓存、全就地读盘）；可用内存不足 8 GB 时不提供「尽可能快」；手改任一项显示「自定义」 |
 | 张量并行 | ✅ 支持 | `--tp`：自动（引擎默认，2 卡及以上为 2）/ 1 / 2 |
 | 多卡选择 | ✅ 支持 | 勾选参与推理的显卡 → 配置 `gpu`；服务器据此设置 `CUDA_VISIBLE_DEVICES`；不写 Qwen 的 `gpu_roles` / `layer_split` |
 | 模型切换 | ✅ 支持 | 每个配置独立加载；切换后重新识别引擎 |
