@@ -60,4 +60,19 @@ Assert-True (-not (@($emptyOut) -contains '--reserve-mib')) 'an empty reserve sh
 Assert-True (-not (@($emptyOut) -contains '--cpu-threads')) 'empty CPU threads should not be written'
 Assert-True (-not (@($emptyOut) -contains '--ssd-cache')) 'an empty SSD cache should not be written'
 
+$officialUnofficial = Set-StrataDeepSeekArgs -List ([Collections.ArrayList]::new([string[]]@('--pack','P','--tp','2','--vram-experts','0.60','--dspark','auto'))) -Settings ([pscustomobject]@{
+    Context = 8192; ReserveMib = ''; CpuThreads = ''; Dspark = 'auto'; DsparkConf = ''; SsdCache = ''; PrefillChunk = ''
+})
+$unofficialOut = [string[]]@($officialUnofficial)
+Assert-True (@($unofficialOut) -contains '--tp') 'the official --tp must be preserved'
+Assert-True (@($unofficialOut) -contains '--vram-experts') 'engine flags the launcher does not edit must be preserved'
+Assert-True (-not (@($unofficialOut) -contains '--dspark-conf')) 'an absent --dspark-conf must stay absent'
+
+$config = [pscustomobject]@{ args = [string[]]@('--pack','P','--max-context','16384','--eos','1','--dspark','on'); user_args = [string[]]@('--dspark','auto') }
+Sync-StrataUserArgsForSave -Config $config -OriginalArgs ([string[]]@('--pack','P','--max-context','8192','--eos','1','--dspark','auto'))
+$userArgs = [string[]]@($config.user_args)
+$userPairs = Get-Pairs $userArgs
+Assert-True ($userPairs['--dspark'] -eq 'on') 'a changed DeepSeek flag must override the stale user_args value'
+Assert-True ($userPairs['--max-context'] -eq '16384') 'a changed context must be mirrored into user_args'
+
 'PASS: DeepSeek settings map to the dsv41 flags and Qwen-only flags are dropped'

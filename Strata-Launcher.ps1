@@ -542,7 +542,7 @@ if ($isDeepSeek) {
     $dsReserve = Make-Num ([string]$deepSeekSettings.ReserveMib) 0 32768 128; Add-Row $layout $row '显存预留 MiB' $dsReserve '引擎的 --reserve-mib；0 = 自动（不写该参数）'
     $dsThreads = Make-Num ([string]$deepSeekSettings.CpuThreads) 0 128 1; Add-Row $layout $row 'CPU 线程数' $dsThreads '引擎的 --cpu-threads；0 = 引擎自动'
     $dsDspark = Make-Combo @('auto','on','off') ([string]$deepSeekSettings.Dspark); Add-Row $layout $row 'DSpark 草稿' $dsDspark 'auto：专家放不进显存时不加载草稿；off 仍会加载，官方不建议'
-    $dsConf = Make-Num ([string]$deepSeekSettings.DsparkConf) 0 1 0.05; Add-Row $layout $row 'DSpark 置信度' $dsConf '官方 IST-DAS 用 0.65；0 表示关闭草稿'
+    $dsConf = [Windows.Forms.TextBox]::new(); $dsConf.Text=[string]$deepSeekSettings.DsparkConf; $dsConf.Width=120; Add-Row $layout $row 'DSpark 置信度' $dsConf '留空 = 保留官方值/引擎默认（IST-DAS 官方写 0.65）；0 = 关闭草稿'
     $dsSsd = [Windows.Forms.TextBox]::new(); $dsSsd.Text=[string]$deepSeekSettings.SsdCache; Add-Row $layout $row 'SSD 专家缓存' $dsSsd '留空 = 引擎自动（auto）；也可填 GB 数字'
     $dsPrefill = Make-Num ([string]$deepSeekSettings.PrefillChunk) 0 65536 256; Add-Row $layout $row '预填充分块' $dsPrefill '引擎的 --prefill-chunk；0 = 引擎自动'
 } else {
@@ -1011,9 +1011,18 @@ function Save-Settings {
             ReserveMib   = $(if ([decimal]$dsReserve.Value -gt 0) { NText $dsReserve } else { '' })
             CpuThreads   = $(if ([decimal]$dsThreads.Value -gt 0) { NText $dsThreads } else { '' })
             Dspark       = [string]$dsDspark.SelectedItem
-            DsparkConf   = NText $dsConf
+            DsparkConf   = $dsConf.Text.Trim()
             SsdCache     = $dsSsd.Text.Trim()
             PrefillChunk = $(if ([decimal]$dsPrefill.Value -gt 0) { NText $dsPrefill } else { '' })
+        }
+        $confValue=[double]0
+        if ($deepSeekSave.DsparkConf -and (-not [double]::TryParse($deepSeekSave.DsparkConf,[ref]$confValue) -or $confValue -lt 0 -or $confValue -gt 1)) {
+            throw 'DSpark 置信度必须是 0 到 1 之间的数字，或留空以保留官方值。'
+        }
+        if ($deepSeekSave.SsdCache -eq 'auto') { $deepSeekSave.SsdCache='' }
+        $ssdValue=[double]0
+        if ($deepSeekSave.SsdCache -and (-not [double]::TryParse($deepSeekSave.SsdCache,[ref]$ssdValue) -or $ssdValue -lt 0)) {
+            throw 'SSD 专家缓存必须填 GB 数字，或留空表示自动。'
         }
         Set-StrataDeepSeekArgs -List $a -Settings $deepSeekSave | Out-Null
         if ($new.vision) { Atomic-Json $visionPath $new.vision; $new.PSObject.Properties.Remove('vision') }

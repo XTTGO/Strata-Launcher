@@ -54,7 +54,8 @@ function Get-StrataEffectiveArgs {
 function Sync-StrataUserArgsForSave {
     param($Config, [string[]]$OriginalArgs)
     $managed = @('--max-context','--kv','--kv-resident','--vram-reserve-mib','--pool-workers',
-                 '--rope-scaling','--rope-scale','--vision')
+                 '--rope-scaling','--rope-scale','--vision','--reserve-mib','--cpu-threads',
+                 '--dspark','--dspark-conf','--ssd-cache','--prefill-chunk')
     $before = @(Split-StrataEngineArgs -ArgsList $OriginalArgs)
     $after = @(Split-StrataEngineArgs -ArgsList @($Config.args))
     $user = @(Split-StrataEngineArgs -ArgsList @($Config.user_args))
@@ -325,7 +326,7 @@ function Get-StrataDeepSeekSettings {
         ReserveMib   = [string](& $read '--reserve-mib' '')
         CpuThreads   = [string](& $read '--cpu-threads' '')
         Dspark       = [string](& $read '--dspark' 'auto')
-        DsparkConf   = [string](& $read '--dspark-conf' '0.65')
+        DsparkConf   = [string](& $read '--dspark-conf' '')
         SsdCache     = [string](& $read '--ssd-cache' '')
         PrefillChunk = [string](& $read '--prefill-chunk' '')
     }
