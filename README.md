@@ -66,6 +66,7 @@ v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、
 ## 文档与验证
 
 - [详细安装与功能说明](README.txt)
+- [发布规则（怎么发一个版本）](docs/RELEASE.md)
 - [版本更新记录](CHANGELOG.md)
 - [v0.1.8 发布说明与 SHA-256](releases/v0.1.8/RELEASE_NOTES.md)
 - [v0.1.7.5 发布说明与 SHA-256](releases/v0.1.7.5/RELEASE_NOTES.md)
