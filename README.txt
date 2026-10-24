@@ -1,7 +1,7 @@
 Strata 辅助启动器（适用于已经安装好 Strata 的 Windows 用户）
 ===========================================================
 
-启动器版本：0.1.7-dev.1（开发分支；独立于 Strata 官方版本，基于 Strata v0.2.3 / 引擎 0.1.48）。更新内容与验证边界见 CHANGELOG.md。
+启动器版本：0.1.7（独立于 Strata 官方版本；针对 Strata v0.2.4 源码安装版完成校验，Qwen 预编译引擎 0.1.48）。主界面显示 Strata、引擎和启动器版本，设置分组可折叠并记住展开状态。更新内容与验证边界见 CHANGELOG.md。
 
 这套启动器独立维护，但运行时依赖已经安装完成的 Strata。它不是模型、引擎或 Python 环境的替代安装包。
 当前只支持通过 START-HERE.bat 从源码安装的 Windows 版 Strata；官方 App 和独立 Terminal 的目录及进程管理方式不同，不能把此包直接放进去使用。
@@ -24,7 +24,7 @@ Strata 辅助启动器（适用于已经安装好 Strata 的 Windows 用户）
 launcher\Strata-Launcher.bat
 
 启动器会根据自身位置识别 Strata 根目录，因此 Strata 可以位于任意盘符，也可以位于带空格的路径中。首次打开时会检查官方入口、Python 环境、服务、引擎、测试工具和至少一个模型配置；如果位置不对或安装不完整，会列出缺少的项目。
-启动器会读取官方源码的引擎目标版本，并核对 engine/BUILD.json；旧引擎会显示警告但仍可启动，安装信息缺失时会提示先检查更新。
+启动器会读取官方 setup.py 的 MIN_ENGINE 兼容下限，并核对 engine/BUILD.json；本地编译引擎还会对照源码构建目标。旧引擎会显示警告但仍可启动，安装信息缺失时会提示先检查更新。
 
 前提
 ----
@@ -44,7 +44,7 @@ launcher\Strata-Launcher.bat
 - Strata-Launcher-GpuPower.ps1：可选的 NVIDIA 显卡功率上限与恢复逻辑。
 - Strata-Launcher-GpuPlacement.ps1：读取 CUDA 显卡并校验、写入单模型显卡角色。
 - Strata-Launcher-Lan.ps1、Strata-Launcher-LanFirewall.ps1：可选的局域网密钥和受限防火墙操作。
-- Strata-Launcher-Update.ps1：执行安全的源码快进与官方安装更新；旧安装流程跳过新版引擎时调用官方签名更新源，并核对最终版本。
+- Strata-Launcher-Update.ps1：执行安全的源码快进与官方安装更新；预编译引擎低于官方兼容下限时调用签名更新源，并核对最终版本；-VerifyOnly 只验证现有引擎。
 - Strata-Calibration-View.ps1：显示当前模型、上下文、视觉状态和完整校准结果。
 - Strata-Launcher-Reload.ps1：切换模型后在当前 PowerShell 进程内重新载入。
 - Strata-Launcher-Settings.ps1：合并采样设置，保留界面未展示的配置字段。

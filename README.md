@@ -2,7 +2,9 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-当前版本：**v0.1.6** · 针对 **Strata v0.2.3 / 引擎 0.1.48** 完成更新与校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.6)
+最新正式版：**v0.1.7** · 针对 **Strata v0.2.4 / 引擎 0.1.48** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.7)
+
+v0.1.7 新增 NVIDIA 多卡分层分配、Strata Monitor 悬浮窗和可折叠的设置分组，并在主界面显示 Strata、引擎和启动器版本。Qwen 官方预编译引擎仍为 0.1.48，源码中的 0.1.49 是新的构建目标。
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -35,7 +37,7 @@
 ## 快速开始
 
 1. 在 Windows 10 或 11 上，通过 Strata 的 `START-HERE.bat` 完成源码安装，并安装至少一个模型。
-2. 从 [v0.1.5 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.5) 下载 `Strata-Launcher-v0.1.5-for-existing-install.zip`。
+2. 从 [v0.1.7 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.7) 下载 `Strata-Launcher-v0.1.7-for-existing-install.zip`。
 3. 解压后，将整个 `launcher` 文件夹放进 Strata 根目录，与 `START-HERE.bat` 并列。
 4. 双击 `launcher\Strata-Launcher.bat`。
 
@@ -55,8 +57,8 @@
 
 - **模型与参数：**切换本机模型，调整生成参数、上下文、显存和视觉选项，并保留配置中未展示的字段。
 - **模型列表刷新：**检查配置引用的 GGUF 和专家包；组件缺失时暂时隐藏该模型，保留官方配置，文件恢复后可再次刷新。
-- **引擎版本检查：**对照官方源码的引擎目标版本；旧引擎显示警告并可继续启动，安装信息缺失时提示先检查更新。
-- **官方更新：**有上游分支时快进更新；没有上游时跟随官方最新稳定 Release。随后运行官方安装更新；若旧安装流程跳过新版引擎，再调用官方签名更新源，并核对实际引擎版本。分支冲突会安全停止。
+- **引擎版本检查：**官方预编译引擎对照 `setup.py` 的 `MIN_ENGINE` 兼容下限；本地编译引擎还对照源码构建目标。旧引擎显示警告并可继续启动，安装信息缺失时提示先检查更新。
+- **官方更新：**有上游分支时快进更新；没有上游时跟随官方最新稳定 Release。随后运行官方安装更新；若预编译引擎低于兼容下限，再调用官方签名更新源，并核对 `BUILD.json` 与可执行文件版本。分支冲突会安全停止。
 - **启动与管理：**保存设置后启动或停止本机 Strata；局域网访问和 NVIDIA 显卡功率设置均为可选操作。
 - **批量 Benchmark：**按预设测试性能、缓存、Agent、长上下文召回和并发等项目；使用报告目录中的配置副本，不修改日常模型 JSON。
 - **本机报告：**在 `launcher\reports` 保存 HTML 报告、原始结果和配置快照。
@@ -65,6 +67,6 @@
 
 - [详细安装与功能说明](README.txt)
 - [版本更新记录](CHANGELOG.md)
-- [v0.1.6 发布说明与 SHA-256](releases/v0.1.6/RELEASE_NOTES.md)
+- [v0.1.7 发布说明与 SHA-256](releases/v0.1.7/RELEASE_NOTES.md)
 
-v0.1.6 的发布验证记录见对应发布说明：已通过 Strata v0.2.3 源码快进、引擎 0.1.47 → 0.1.48 更新及官方一词生成校验；**完整日常推理尚未验收。**
+v0.1.7 的发布验证记录见对应发布说明：138 个 Python 测试与 34 个 PowerShell 测试通过，双卡 NVIDIA 分层已在本机真实模型推理中验收；**完整日常推理未在本版重新验收。**
