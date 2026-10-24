@@ -8,11 +8,18 @@
     $rootParent = Split-Path -Parent $root
     $defaultDataDirectory = Join-Path $rootParent 'Strata-data'
 
+    $hasDeepSeekConfig = $false
+    foreach ($file in @(Get-ChildItem -LiteralPath $root -Filter 'strata-*.json' -File -ErrorAction SilentlyContinue)) {
+        try {
+            $candidate = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$candidate.arch -eq 'deepseek41' -or ([string]$candidate.exe) -match 'strata-dsv41|engine-dsv41') { $hasDeepSeekConfig = $true; break }
+        } catch { }
+    }
+    $deepSeekEngine = Get-StrataDeepSeekEngineStatus -Root $root
     $required = [ordered]@{
         'START-HERE.bat' = Join-Path $root 'START-HERE.bat'
         '.venv\Scripts\python.exe' = Join-Path $root '.venv\Scripts\python.exe'
         'serve\server.py' = Join-Path $root 'serve\server.py'
-        'engine\strata.exe' = Join-Path $root 'engine\strata.exe'
         'UPDATE.bat' = Join-Path $root 'UPDATE.bat'
         'tools\calibrate.py' = Join-Path $root 'tools\calibrate.py'
         'tools\needle_bench.py' = Join-Path $root 'tools\needle_bench.py'
@@ -21,11 +28,14 @@
     $missing = @($required.GetEnumerator() | Where-Object {
         -not (Test-Path -LiteralPath $_.Value -PathType Leaf)
     } | ForEach-Object { $_.Key })
+    $hasQwenEngine = Test-Path -LiteralPath (Join-Path $root 'engine\strata.exe') -PathType Leaf
+    $deepSeekCovers = ($hasDeepSeekConfig -and $null -ne $deepSeekEngine.InstalledVersion)
+    if (-not $hasQwenEngine -and -not $deepSeekCovers) { $missing += 'engine\strata.exe' }
     $engineStatus = Get-StrataEngineVersionStatus -Root $root
     $strataVersion = Get-StrataSourceVersion -Root $root
     $engineIssue = [string]$engineStatus.Issue
     $engineWarning = [string]$engineStatus.Warning
-    if ($engineIssue) { $missing += $engineIssue }
+    if ($engineIssue -and -not $deepSeekCovers) { $missing += $engineIssue }
 
     $modelCatalog = @()
     $catalogError = ''
@@ -99,6 +109,8 @@
         EngineWarning = $engineWarning
         StrataVersion = $strataVersion
         EngineVersion = $(if ($engineStatus.InstalledVersion) { [string]$engineStatus.InstalledVersion } else { '未知' })
+        DeepSeekEngineVersion = $(if ($deepSeekEngine.InstalledVersion) { [string]$deepSeekEngine.InstalledVersion } else { '' })
+        DeepSeekEnginePath = [string]$deepSeekEngine.Path
         ModelCatalogStatus = $(if ($modelCatalog.Count) { 'current-setup' } else { 'fallback' })
         ModelCatalogSource = $catalogSource
         ModelCatalogCount = $modelCatalog.Count
@@ -121,6 +133,51 @@ function Get-StrataSourceVersion {
         }
     } catch { }
     return '未知'
+}
+
+function Get-StrataEngineExecutablePaths {
+    param([Parameter(Mandatory=$true)][string]$Root)
+
+    # The Qwen engine sits in engine\; DeepSeek's package is unpacked into a versioned folder under engine-dsv41\.
+    $paths = @((Join-Path $Root 'engine\strata.exe'))
+    $direct = Join-Path $Root 'engine-dsv41\strata-dsv41.exe'
+    if (Test-Path -LiteralPath $direct -PathType Leaf) { $paths += $direct }
+    foreach ($dir in @(Get-ChildItem -LiteralPath (Join-Path $Root 'engine-dsv41') -Directory -ErrorAction SilentlyContinue)) {
+        $exe = Join-Path $dir.FullName 'strata-dsv41.exe'
+        if (Test-Path -LiteralPath $exe -PathType Leaf) { $paths += $exe }
+    }
+    return $paths
+}
+function Get-StrataDeepSeekEngineStatus {
+    param([Parameter(Mandatory=$true)][string]$Root)
+
+    $status = [pscustomobject]@{ InstalledVersion = $null; Path = ''; Directory = '' }
+    $base = Join-Path $Root 'engine-dsv41'
+    if (-not (Test-Path -LiteralPath $base -PathType Container)) { return $status }
+    $found = @()
+    foreach ($sub in @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue)) {
+        $exe = Join-Path $sub.FullName 'strata-dsv41.exe'
+        if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
+        $version = $null
+        $build = Join-Path $sub.FullName 'BUILD.json'
+        if (Test-Path -LiteralPath $build -PathType Leaf) {
+            try {
+                $data = Get-Content -LiteralPath $build -Raw -Encoding UTF8 | ConvertFrom-Json
+                if (([string]$data.version) -match '^\d+(?:\.\d+)+$') { $version = [version]([string]$data.version) }
+            } catch { }
+        }
+        if (-not $version) {
+            $match = [regex]::Match($sub.Name, '^(\d+(?:\.\d+)+)')
+            if ($match.Success) { $version = [version]$match.Groups[1].Value }
+        }
+        $found += [pscustomobject]@{ Version = $version; Path = $exe; Directory = $sub.FullName }
+    }
+    if (-not $found.Count) { return $status }
+    $best = $found | Sort-Object -Property @{ Expression = { if ($_.Version) { $_.Version } else { [version]'0.0' } } } -Descending | Select-Object -First 1
+    $status.InstalledVersion = $best.Version
+    $status.Path = $best.Path
+    $status.Directory = $best.Directory
+    return $status
 }
 
 function Get-StrataEngineVersionStatus {
@@ -321,6 +378,7 @@ function Get-StrataModelLabel {
             return [string]$entry.label
         }
     }
+    if ($Arch -eq 'deepseek41') { return 'DeepSeek-V4.1-Flash' }
     if ($Arch -eq 'qwen35moe') {
         $prefix = 'qwen3.6-35b-a3b-'
         if ($name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {

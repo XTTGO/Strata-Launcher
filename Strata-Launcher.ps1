@@ -34,6 +34,7 @@ if ($CheckOnly) {
         launcher_version = $LauncherVersion
         strata_version = $LauncherEnvironment.StrataVersion
         engine_version = $LauncherEnvironment.EngineVersion
+        deepseek_engine_version = $LauncherEnvironment.DeepSeekEngineVersion
         model_count = $LauncherEnvironment.ModelConfigs.Count
         unavailable_model_count = $LauncherEnvironment.UnavailableModels.Count
         engine_warning = $LauncherEnvironment.EngineWarning
@@ -300,7 +301,7 @@ function Test-ProcessDescendant([int]$ChildId, [int]$AncestorId) {
     return $false
 }
 function Get-StrataEnginePaths {
-    return @((Join-Path $Root 'engine\strata.exe'), (Join-Path $Root 'engine-dsv41\strata-dsv41.exe'))
+    return @(Get-StrataEngineExecutablePaths -Root $Root)
 }
 function Find-StrataServer([int]$Port) {
     Initialize-StrataProcessTree
@@ -378,7 +379,7 @@ function Find-StrataServer([int]$Port) {
             $script:StopLookupDetail='启动器 PID 记录已过期，记录中的进程不存在或类型不匹配。'
         } catch { $script:StopLookupDetail="启动器 PID 记录无法读取：$($_.Exception.Message)" }
     }
-    if (-not $script:StopLookupDetail) { $script:StopLookupDetail="Strata API 有响应，但当前服务不是由新版启动器启动，且没有找到路径精确匹配 $Root\engine\strata.exe 的进程树。请在原 Strata cmd 窗口按 Ctrl+C 关闭这一次；以后由启动器启动的服务会记录 PID。" }
+    if (-not $script:StopLookupDetail) { $script:StopLookupDetail="Strata API 有响应，但当前服务不是由新版启动器启动，且没有找到路径精确匹配本安装模型引擎（engine\strata.exe 或 engine-dsv41\strata-dsv41.exe）的进程树。请在原 Strata cmd 窗口按 Ctrl+C 关闭这一次；以后由启动器启动的服务会记录 PID。" }
     return $null
 }
 function Add-Row([System.Windows.Forms.TableLayoutPanel]$Table, [int]$Row, [string]$Label, [System.Windows.Forms.Control]$Control, [string]$Hint = '') {
@@ -492,7 +493,8 @@ $hero = [Windows.Forms.TableLayoutPanel]::new(); $hero.Tag='hero'; $hero.Dock='F
 $heroBrand = [Windows.Forms.TableLayoutPanel]::new(); $heroBrand.Tag='hero'; $heroBrand.Dock='Fill'; $heroBrand.ColumnCount=1; $heroBrand.RowCount=2
 [void]$heroBrand.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',48)); [void]$heroBrand.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
 $heroTitle = [Windows.Forms.Label]::new(); $heroTitle.Text='STRATA CONTROL CENTER'; $heroTitle.Tag='hero-text'; $heroTitle.AutoSize=$true; $heroTitle.Font=[Drawing.Font]::new('Segoe UI Semibold',21,[Drawing.FontStyle]::Bold); $heroTitle.Margin=[Windows.Forms.Padding]::new(0)
-$heroSubtitle = [Windows.Forms.Label]::new(); $heroSubtitle.Text="Strata $($LauncherEnvironment.StrataVersion)  ·  引擎 $($LauncherEnvironment.EngineVersion)  ·  启动器 v$LauncherVersion"; $heroSubtitle.Tag='hero-muted'; $heroSubtitle.AutoSize=$true; $heroSubtitle.Font=[Drawing.Font]::new('Segoe UI',9); $heroSubtitle.Margin=[Windows.Forms.Padding]::new(2,0,0,0)
+$engineLabel = if ($isDeepSeek -and $LauncherEnvironment.DeepSeekEngineVersion) { "DeepSeek 引擎 $($LauncherEnvironment.DeepSeekEngineVersion)" } else { "引擎 $($LauncherEnvironment.EngineVersion)" }
+$heroSubtitle = [Windows.Forms.Label]::new(); $heroSubtitle.Text="Strata $($LauncherEnvironment.StrataVersion)  ·  $engineLabel  ·  启动器 v$LauncherVersion"; $heroSubtitle.Tag='hero-muted'; $heroSubtitle.AutoSize=$true; $heroSubtitle.Font=[Drawing.Font]::new('Segoe UI',9); $heroSubtitle.Margin=[Windows.Forms.Padding]::new(2,0,0,0)
 [void]$heroBrand.Controls.Add($heroTitle,0,0); [void]$heroBrand.Controls.Add($heroSubtitle,0,1)
 $heroState = [Windows.Forms.Label]::new(); $heroState.Text=('●  CURRENT MODEL' + "`r`n" + [string]$selectedConfig.Label); $heroState.Tag='hero-text'; $heroState.Dock='Fill'; $heroState.TextAlign='MiddleLeft'; $heroState.AutoEllipsis=$true; $heroState.Padding=[Windows.Forms.Padding]::new(14,5,8,5); $heroState.BackColor=$theme.HeroSurface; $heroState.Font=[Drawing.Font]::new('Segoe UI Semibold',9,[Drawing.FontStyle]::Bold)
 $modelToolTip=[Windows.Forms.ToolTip]::new(); $modelToolTip.SetToolTip($heroState, ([string]$selectedConfig.Label + "`r`n" + [string]$selectedConfig.ModelName + "`r`n" + [string]$selectedConfig.Path))
