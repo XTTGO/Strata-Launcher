@@ -17,6 +17,14 @@ function Test-StrataOwnPathConfig {
     return [string]$Config.arch -eq 'qwen35moe'
 }
 
+function Get-StrataQwenOnlyFlags {
+    return @('--native','--kv','--kv-resident','--vram-reserve-mib','--pool-workers',
+             '--rope-scaling','--rope-scale','--vision','--prefill','--spec','--spec-min-p',
+             '--batch-mtp','--mtp','--expert-cache','--resident-budget-gib','--layer-split',
+             '--pcie-frac','--expert-vram','--split-skip-if-fits','--pool-cores',
+             '--vram-elastic','--vram-segment-mib','--expert-profile-save','--expert-profile-save-every')
+}
+
 function Split-StrataEngineArgs {
     param([string[]]$ArgsList)
     $groups = [Collections.ArrayList]::new()
@@ -56,7 +64,9 @@ function Sync-StrataUserArgsForSave {
     $managed = @('--max-context','--kv','--kv-resident','--vram-reserve-mib','--pool-workers',
                  '--rope-scaling','--rope-scale','--vision','--reserve-mib','--cpu-threads',
                  '--dspark','--dspark-conf','--ssd-cache','--ssd-policy','--mmap-experts','--vram-experts',
-                 '--prefill-chunk','--dspark-block','--tp')
+                 '--prefill-chunk','--dspark-block','--tp','--experts')
+    $deepSeek = Test-StrataDeepSeekConfig -Config $Config
+    if ($deepSeek) { $managed += @(Get-StrataQwenOnlyFlags) }
     $before = @(Split-StrataEngineArgs -ArgsList $OriginalArgs)
     $after = @(Split-StrataEngineArgs -ArgsList @($Config.args))
     $user = @(Split-StrataEngineArgs -ArgsList @($Config.user_args))
@@ -203,11 +213,29 @@ function Merge-StrataSampling {
     return [pscustomobject]$merged
 }
 
+function Get-StrataModelCardSampling {
+    param([string]$Family = 'qwen4exp', [bool]$Thinking = $true)
+    switch ($Family) {
+        'deepseek41' { return [ordered]@{ temperature = [decimal]1; top_p = [decimal]1 } }
+        'qwen35moe' {
+            if ($Thinking) { return [ordered]@{ temperature = [decimal]1; top_p = [decimal]0.95; top_k = [decimal]20; presence_penalty = [decimal]1.5 } }
+            return [ordered]@{ temperature = [decimal]0.7; top_p = [decimal]0.8; top_k = [decimal]20; presence_penalty = [decimal]1.5 }
+        }
+        default {
+            if ($Thinking) { return [ordered]@{ temperature = [decimal]1; top_p = [decimal]0.95; top_k = [decimal]20 } }
+            return [ordered]@{ temperature = [decimal]0.7; top_p = [decimal]0.8; top_k = [decimal]20; presence_penalty = [decimal]1.5 }
+        }
+    }
+}
+
 function Get-StrataUsagePresets {
+    param([string]$Family = 'qwen4exp')
+    $thinkingCard = Get-StrataModelCardSampling -Family $Family -Thinking $true
+    $instructCard = Get-StrataModelCardSampling -Family $Family -Thinking $false
     $baseline = [ordered]@{
         temperature = [decimal]1
-        top_p = [decimal]0.95
-        top_k = [decimal]20
+        top_p = $(if ($Family -eq 'deepseek41') { [decimal]1 } else { [decimal]0.95 })
+        top_k = $(if ($Family -eq 'deepseek41') { [decimal]64 } else { [decimal]20 })
         min_p = [decimal]0
         presence_penalty = [decimal]0
         repetition_penalty = [decimal]1
@@ -221,19 +249,17 @@ function Get-StrataUsagePresets {
     foreach ($entry in @(@('快速直答','none'), @('日常通用','medium'), @('Agent / 深度思考','high'))) {
         $values = [ordered]@{ effort = $entry[1] }
         foreach ($key in $baseline.Keys) { $values[$key] = $baseline[$key] }
-        if ($entry[0] -eq '快速直答') {
-            $values.temperature = [decimal]0.7
-            $values.top_p = [decimal]0.8
-            $values.presence_penalty = [decimal]1.5
-        }
+        $card = if ($entry[0] -eq '快速直答') { $instructCard } else { $thinkingCard }
+        foreach ($key in $card.Keys) { $values[$key] = $card[$key] }
         $presets[$entry[0]] = $values
     }
     return $presets
 }
 
 function Set-StrataUsagePresetControls {
-    param([string]$Name, [System.Collections.IDictionary]$Controls)
-    $presets = Get-StrataUsagePresets
+    param([string]$Name, [System.Collections.IDictionary]$Controls, [string]$Family = 'qwen4exp')
+    $presets = Get-StrataUsagePresets -Family $Family
+    if ($Name -eq '官方默认') { $Name = 'Agent / 深度思考' }
     if (-not $presets.Contains($Name)) { throw "未知使用预设：$Name" }
     $values = $presets[$Name]
     $Controls.effort.SelectedItem = $values.effort
@@ -242,11 +268,13 @@ function Set-StrataUsagePresetControls {
         if ($key -eq 'seed') { $Controls.seed.Text = $values.seed }
         else { $Controls[$key].Value = $values[$key] }
     }
+    if ($Controls.Contains('budget_mode')) { $Controls.budget_mode.SelectedItem = '官方默认' }
 }
 
 function Get-StrataUsagePresetName {
-    param([System.Collections.IDictionary]$Controls)
-    foreach ($entry in (Get-StrataUsagePresets).GetEnumerator()) {
+    param([System.Collections.IDictionary]$Controls, [string]$Family = 'qwen4exp')
+    if ($Controls.Contains('budget_mode') -and [string]$Controls.budget_mode.SelectedItem -ne '官方默认') { return '自定义' }
+    foreach ($entry in (Get-StrataUsagePresets -Family $Family).GetEnumerator()) {
         $values = $entry.Value
         if ([string]$Controls.effort.SelectedItem -ne [string]$values.effort) { continue }
         if ([string]$Controls.seed.Text -ne [string]$values.seed) { continue }
@@ -261,31 +289,100 @@ function Get-StrataUsagePresetName {
 }
 
 function Connect-StrataUsagePresetControls {
-    param($Selector, [System.Collections.IDictionary]$Controls)
-    $state = [pscustomobject]@{ Applying = $false; LabelOnly = $false }
+    param($Selector, [System.Collections.IDictionary]$Controls, [string]$Family = 'qwen4exp')
+    $state = [pscustomobject]@{ Applying = $false; LabelOnly = $false; Official = ([string]$Selector.SelectedItem -eq '官方默认') }
     $sync = {
         if ($state.Applying) { return }
-        $label = Get-StrataUsagePresetName -Controls $Controls
+        if ($state.Official) { return }
+        $label = Get-StrataUsagePresetName -Controls $Controls -Family $Family
         if ([string]$Selector.SelectedItem -ne $label) {
             $state.LabelOnly = $true
             try { $Selector.SelectedItem = $label }
             finally { $state.LabelOnly = $false }
         }
     }.GetNewClosure()
+    $changed = { if ($state.Applying) { return }; $state.Official = $false; & $sync }.GetNewClosure()
     $Selector.Add_SelectedIndexChanged({
         if ($state.LabelOnly) { return }
         $name = [string]$Selector.SelectedItem
         if ($name -eq '自定义') { return }
+        $state.Official = ($name -eq '官方默认')
         $state.Applying = $true
-        try { Set-StrataUsagePresetControls -Name $name -Controls $Controls }
+        try { Set-StrataUsagePresetControls -Name $name -Controls $Controls -Family $Family }
         finally { $state.Applying = $false }
     }.GetNewClosure())
-    $Controls.effort.Add_SelectedIndexChanged($sync)
+    $Controls.effort.Add_SelectedIndexChanged($changed)
     foreach ($key in @('temperature','top_p','top_k','min_p','presence_penalty','repetition_penalty','frequency_penalty','penalty_last_n','max_tokens','reasoning_budget_tokens')) {
-        $Controls[$key].Add_ValueChanged($sync)
+        $Controls[$key].Add_ValueChanged($changed)
     }
-    $Controls.seed.Add_TextChanged($sync)
+    $Controls.seed.Add_TextChanged($changed)
+    if ($Controls.Contains('budget_mode')) { $Controls.budget_mode.Add_SelectedIndexChanged($changed) }
     & $sync
+}
+
+function Get-StrataSamplingForSave {
+    param($Existing, [string]$Family = 'qwen4exp', [string]$PresetName = '自定义', $Edited = $null, [string]$SeedText = '')
+    $managed = @('temperature','top_p','top_k','min_p','presence_penalty','frequency_penalty',
+                 'repetition_penalty','penalty_last_n','repeat_penalty','repeat_last_n','seed',
+                 'experimental_speed_projection','strata_tune')
+    if ($PresetName -eq '自定义') {
+        $result = Merge-StrataSampling -Existing $Existing -Edited $Edited -SeedText $SeedText
+        if ($Family -eq 'deepseek41') {
+            foreach ($key in @('presence_penalty','frequency_penalty','repetition_penalty','penalty_last_n','repeat_penalty','repeat_last_n',
+                               'experimental_speed_projection','strata_tune')) { $result.PSObject.Properties.Remove($key) }
+        }
+        return $result
+    }
+    $values = [ordered]@{}
+    if ($null -ne $Existing) { foreach ($property in $Existing.PSObject.Properties) { $values[$property.Name] = $property.Value } }
+    foreach ($key in $managed) { [void]$values.Remove($key) }
+    if ($PresetName -ne '官方默认') {
+        $thinking = $PresetName -ne '快速直答'
+        $card = Get-StrataModelCardSampling -Family $Family -Thinking $thinking
+        foreach ($key in $card.Keys) { $values[$key] = $card[$key] }
+    }
+    return [pscustomobject]$values
+}
+
+function Merge-StrataSharedDefaults {
+    param($Existing, $Edited)
+    $values = [ordered]@{}
+    if ($null -ne $Existing) { foreach ($property in $Existing.PSObject.Properties) { $values[$property.Name] = $property.Value } }
+    foreach ($key in @('reasoning_effort','reasoning_budget_tokens','temperature','top_p','top_k','seed','max_tokens','experimental_speed_projection')) {
+        [void]$values.Remove($key)
+    }
+    if ($null -ne $Edited) { foreach ($property in $Edited.PSObject.Properties) { $values[$property.Name] = $property.Value } }
+    return [pscustomobject]$values
+}
+
+function Get-StrataReasoningBudgetValue {
+    param([string]$Mode, [int]$Value)
+    if ($Mode -eq '官方默认') { return $null }
+    if ($Mode -eq '不限制（0）') { return 0 }
+    if ($Mode -ne '自定义上限' -or $Value -le 0) { throw '思考预算的自定义上限必须大于 0。' }
+    return $Value
+}
+
+function Get-StrataReasoningEffortValue {
+    param([string]$Family = 'qwen4exp', [string]$Choice, [int]$CustomNumber = 0)
+    if ($Choice -in @('none','low','medium','high')) { return $Choice }
+    throw '配置文件与共享默认值的思考强度仅支持 none/low/medium/high；DeepSeek 的 max 和 1–100 只能由 API 请求指定。'
+}
+
+function Test-StrataGenerationOverrides {
+    param($Config, $Shared)
+    if ($null -ne $Config.sampling -and @($Config.sampling.PSObject.Properties).Count -gt 0) { return $true }
+    foreach ($key in @('reasoning_effort','reasoning_budget_tokens')) {
+        $property = $Config.PSObject.Properties[$key]
+        if ($null -ne $property -and $null -ne $property.Value) { return $true }
+    }
+    if ($null -ne $Shared) {
+        foreach ($key in @('reasoning_effort','reasoning_budget_tokens','temperature','top_p','top_k','seed','max_tokens','experimental_speed_projection')) {
+            $property = $Shared.PSObject.Properties[$key]
+            if ($null -ne $property -and $null -ne $property.Value) { return $true }
+        }
+    }
+    return $false
 }
 
 function Get-StrataDeepSeekModelKey {
@@ -299,6 +396,89 @@ function Test-StrataDeepSeekConfig {
     if (-not $Config) { return $false }
     if ([string]$Config.arch -eq 'deepseek41') { return $true }
     return ([string]$Config.exe) -match 'strata-dsv41|engine-dsv41'
+}
+
+function Get-StrataInitialContext {
+    param($Config)
+    $fallback = if (Test-StrataDeepSeekConfig -Config $Config) { '8192' } else { '131072' }
+    $argsList = [string[]]@($Config.args)
+    for ($i = 0; $i -lt $argsList.Count - 1; $i++) {
+        if ($argsList[$i] -eq '--max-context') { return [long]$argsList[$i + 1] }
+    }
+    return [long]$fallback
+}
+
+function Test-StrataDeepSeekExpertsSupported {
+    param([string]$Version)
+    try { return ([version]$Version -ge [version]'0.1.50') }
+    catch { return $false }
+}
+
+function Get-StrataDeepSeekConfiguredEngineVersion {
+    param($Config, [string]$Root = '', [string]$FallbackVersion = '')
+    $exe = [string]$Config.exe
+    if (-not $exe) { return $FallbackVersion }
+    if (-not [IO.Path]::IsPathRooted($exe) -and $Root) { $exe = Join-Path $Root $exe }
+    $directory = Split-Path -Parent $exe
+    $build = Join-Path $directory 'BUILD.json'
+    if (Test-Path -LiteralPath $build -PathType Leaf) {
+        try {
+            $version = [string]((Get-Content -LiteralPath $build -Raw -Encoding UTF8 | ConvertFrom-Json).version)
+            if ($version -match '^\d+(?:\.\d+)+$') { return $version }
+        } catch { }
+    }
+    $match = [regex]::Match((Split-Path -Leaf $directory), '^(\d+(?:\.\d+)+)(?:-|$)')
+    if ($match.Success) { return $match.Groups[1].Value }
+    return ''
+}
+
+function Get-StrataDeepSeekTpItems {
+    param([string]$CurrentValue)
+    $items = @('自动（引擎默认）','1','2')
+    $number = 0
+    if ([int]::TryParse($CurrentValue, [ref]$number) -and $number -gt 2) { $items += [string]$number }
+    return $items
+}
+
+function Get-StrataQwenKvResidentChoice {
+    param([string]$CurrentValue)
+    $number = 0
+    if (-not [int]::TryParse($CurrentValue, [ref]$number) -or $number -le 0) { return '关闭' }
+    if ($number -lt 20480) { return '20480' }
+    return [string]$number
+}
+
+function Get-StrataQwenKvResidentItems {
+    param([string]$CurrentValue)
+    $items = @('关闭','20480','32768','65536')
+    $choice = Get-StrataQwenKvResidentChoice -CurrentValue $CurrentValue
+    if ($items -notcontains $choice) { $items += $choice }
+    return $items
+}
+
+function Get-StrataQwenParallelItems {
+    param([string]$CurrentValue)
+    $items = @('1','2','3','4','5','6','7','8')
+    $number = 0
+    if ([int]::TryParse($CurrentValue, [ref]$number) -and $number -gt 8 -and $number -le 1024) { $items += [string]$number }
+    return $items
+}
+
+function Test-StrataDeepSeekGpuSelectionChanged {
+    param([int[]]$Initial = @(), [int[]]$Selected = @(), [int]$AvailableCount = 0)
+    if ($AvailableCount -le 0) { return $false }
+    return ((@($Initial | Sort-Object) -join ',') -ne (@($Selected | Sort-Object) -join ','))
+}
+
+function Remove-StrataDeepSeekUnsupportedConfig {
+    param($Config)
+    $result = $Config | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    foreach ($name in @('drafting','mtp','vram_elastic','vram_segment_mib','pool_cores',
+                       'expert_profile_save','expert_profile_save_every','layer_split',
+                       'split_skip_if_fits','parallel','replicas','vision')) {
+        $result.PSObject.Properties.Remove($name)
+    }
+    return $result
 }
 
 function Remove-StrataArgPair {
@@ -370,54 +550,21 @@ function Get-StrataMmapItem {
 # below is what the machine can actually lend: the RAM free now less the engine's own 12 GB margin, and never
 # more than six tenths of the installed memory, so a box busy with other programs is not given a wishful number.
 # 0 means "no useful figure": the caller leaves the flag unset and the engine's own rule stays in charge.
-function Get-StrataSsdCacheSuggestion {
-    param([double]$TotalGb = 0, [double]$FreeGb = 0)
-    if ($TotalGb -le 0) { return 0 }
-    if ($FreeGb -le 0) { $FreeGb = $TotalGb }
-    $fromFree = [Math]::Floor($FreeGb - 12)
-    $fromTotal = [Math]::Floor($TotalGb * 0.6)
-    $gb = [Math]::Min($fromFree, $fromTotal)
-    if ($gb -lt 8) { return 0 }
-    if ($gb -gt 256) { $gb = 256 }
-    return [int]$gb
-}
-
-function Get-StrataSuggestedSsdCache {
-    $totalGb = 0.0
-    $freeGb = 0.0
-    try { $totalGb = [double](Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB } catch { $totalGb = 0 }
-    try { $freeGb = [double](Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).FreePhysicalMemory / 1MB } catch { $freeGb = 0 }
-    if ($totalGb -le 0) { return 0 }
-    return Get-StrataSsdCacheSuggestion -TotalGb $totalGb -FreeGb $freeGb
-}
-
-# The presets only touch the expert-placement knobs; sampling, context and the draft model stay as the user set them.
+# Cache presets only touch RAM cache sizing and eviction. GPU share, mmap, drafting and sampling stay as set.
 function Get-StrataDeepSeekPresets {
     param([int]$SsdCacheGb = 0)
-    $fastCache = if ($SsdCacheGb -gt 0) { [string]$SsdCacheGb } else { '' }
     return [ordered]@{
-        '尽可能快（多吃内存）' = [pscustomobject]@{ SsdCache = $fastCache; SsdPolicy = 'lfu'; Mmap = ''; Vram = 0; DsparkBlock = 0 }
-        '自动（均衡）'         = [pscustomobject]@{ SsdCache = ''; SsdPolicy = ''; Mmap = ''; Vram = 0; DsparkBlock = 0 }
-        '省内存（少占内存）'   = [pscustomobject]@{ SsdCache = '0'; SsdPolicy = ''; Mmap = ''; Vram = 0; DsparkBlock = 0 }
+        '自动（官方默认）' = [pscustomobject]@{ SsdCache = ''; SsdPolicy = '' }
+        '热专家优先（LFU）' = [pscustomobject]@{ SsdCache = ''; SsdPolicy = 'lfu' }
+        '省内存（关闭 RAM 缓存）' = [pscustomobject]@{ SsdCache = '0'; SsdPolicy = '' }
     }
 }
 
 function Test-StrataDeepSeekPresetMatch {
     param($Values, [System.Collections.IDictionary]$Controls)
     $cacheText = $Controls.Ssd.Text.Trim()
-    if ($cacheText -ne [string]$Values.SsdCache) {
-        # The fast preset's figure is computed per machine and moves with the memory free at the time, so a
-        # different positive figure with the same policy is still the same intent.  Only an empty field (auto)
-        # or an explicit 0 (store off) belongs to another preset.
-        $fastWantsFigure = ([string]$Values.SsdCache) -notin @('', '0')
-        $cacheGb = [double]0
-        $cacheIsFigure = [double]::TryParse($cacheText, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$cacheGb) -and $cacheGb -gt 0
-        if (-not ($fastWantsFigure -and $cacheIsFigure)) { return $false }
-    }
+    if ($cacheText -ne [string]$Values.SsdCache) { return $false }
     if ((Get-StrataSsdPolicyValue ([string]$Controls.Policy.SelectedItem)) -ne (Get-StrataSsdPolicyValue ([string]$Values.SsdPolicy))) { return $false }
-    if ((Get-StrataMmapValue ([string]$Controls.Mmap.SelectedItem)) -ne (Get-StrataMmapValue ([string]$Values.Mmap))) { return $false }
-    if ([decimal]$Controls.Vram.Value -ne [decimal]$Values.Vram) { return $false }
-    if ([decimal]$Controls.DsparkBlock.Value -ne [decimal]$Values.DsparkBlock) { return $false }
     return $true
 }
 
@@ -436,9 +583,6 @@ function Set-StrataDeepSeekPresetControls {
     $values = $presets[$Name]
     $Controls.Ssd.Text = [string]$values.SsdCache
     $Controls.Policy.SelectedItem = (Get-StrataSsdPolicyItem ([string]$values.SsdPolicy))
-    $Controls.Mmap.SelectedItem = (Get-StrataMmapItem ([string]$values.Mmap))
-    $Controls.Vram.Value = [decimal]$values.Vram
-    $Controls.DsparkBlock.Value = [decimal]$values.DsparkBlock
 }
 
 function Connect-StrataDeepSeekPresetControls {
@@ -463,9 +607,6 @@ function Connect-StrataDeepSeekPresetControls {
     }.GetNewClosure())
     $Controls.Ssd.Add_TextChanged($sync)
     $Controls.Policy.Add_SelectedIndexChanged($sync)
-    $Controls.Mmap.Add_SelectedIndexChanged($sync)
-    $Controls.Vram.Add_ValueChanged($sync)
-    $Controls.DsparkBlock.Add_ValueChanged($sync)
     & $sync
 }
 
@@ -493,6 +634,7 @@ function Get-StrataDeepSeekSettings {
         PrefillChunk = [string](& $read '--prefill-chunk' '')
         DsparkBlock  = [string](& $read '--dspark-block' '')
         Tp           = [string](& $read '--tp' '')
+        Experts      = [string](& $read '--experts' '')
     }
 }
 
@@ -500,20 +642,20 @@ function Set-StrataDeepSeekArgs {
     param([Collections.ArrayList]$List, $Settings)
     # The dsv41 engine has its own flags and treats an unknown one as a fatal error: drop the Qwen-only
     # flags the launcher writes for its engine before any DeepSeek value is saved.
-    foreach ($flag in @('--kv','--kv-resident','--vram-reserve-mib','--pool-workers','--rope-scaling','--rope-scale')) {
+    foreach ($flag in @(Get-StrataQwenOnlyFlags)) {
         Remove-StrataArgPair -List $List -Flag $flag
     }
-    Remove-StrataArgPair -List $List -Flag '--vision'
     Set-StrataArgPair -List $List -Flag '--max-context' -Value ([string]$Settings.Context)
     Set-StrataArgPair -List $List -Flag '--reserve-mib' -Value $Settings.ReserveMib
     Set-StrataArgPair -List $List -Flag '--cpu-threads' -Value $Settings.CpuThreads
     $dspark = ([string]$Settings.Dspark).ToLowerInvariant()
-    if ($dspark -notin @('auto','on','off')) { $dspark = 'auto' }
+    if ($dspark -notin @('auto','on','off','none')) { $dspark = 'auto' }
     Set-StrataArgPair -List $List -Flag '--dspark' -Value $dspark
     Set-StrataArgPair -List $List -Flag '--dspark-conf' -Value $Settings.DsparkConf
     # The expert-placement knobs.  An empty value leaves the flag out, so the engine's own rule stays in force;
     # a value out of the engine's domain is dropped rather than written (dsv41 stops on a bad flag value).
     $ssdCache = (Get-StrataDeepSeekSetting $Settings 'SsdCache').Trim()
+    if ($ssdCache -eq 'auto') { $ssdCache = '' }
     $ssdPolicy = Get-StrataSsdPolicyValue (Get-StrataDeepSeekSetting $Settings 'SsdPolicy')
     $mmap = Get-StrataMmapValue (Get-StrataDeepSeekSetting $Settings 'MmapExperts')
     $vramText = (Get-StrataDeepSeekSetting $Settings 'VramExperts').Trim()
@@ -530,6 +672,9 @@ function Set-StrataDeepSeekArgs {
     Set-StrataArgPair -List $List -Flag '--prefill-chunk' -Value $Settings.PrefillChunk
     Set-StrataArgPair -List $List -Flag '--dspark-block' -Value $blockText
     Set-StrataArgPair -List $List -Flag '--tp' -Value $Settings.Tp
+    $experts = (Get-StrataDeepSeekSetting $Settings 'Experts').Trim()
+    if ($Settings.ExpertsSupported -ne $true -or $experts -notin @('5','6')) { $experts = '' }
+    Set-StrataArgPair -List $List -Flag '--experts' -Value $experts
     # "copy into RAM" and "RAM store" are two roads to the same place: copying every expert the GPU leaves
     # over already fills the memory, so a store budget on top of it would double-count.  One road at a time.
     if ($mmap -eq 'off') { Set-StrataArgPair -List $List -Flag '--ssd-cache' -Value '0' }

@@ -546,52 +546,62 @@ $modelPanel=[Windows.Forms.FlowLayoutPanel]::new(); $modelPanel.FlowDirection='L
 [void]$modelPanel.Controls.Add($modelSelector); [void]$modelPanel.Controls.Add($modelSwitch)
 Add-Row $layout $row '当前模型' $modelPanel
 $layout.SetColumnSpan($modelPanel,2)
-$preset = Make-Combo @('快速直答','日常通用','Agent / 深度思考','自定义') '自定义'; Add-Row $layout $row '使用预设' $preset '只调整生成参数；上下文、显存和并发保持当前模型设置'
+$generationFamily=if($isDeepSeek){'deepseek41'}elseif($isOwnPath){'qwen35moe'}else{'qwen4exp'}
+$initialPresetName=if(Test-StrataGenerationOverrides -Config $cfg -Shared $shared){'自定义'}else{'官方默认'}
+$preset = Make-Combo @('官方默认','快速直答','日常通用','Agent / 深度思考','自定义') $initialPresetName; Add-Row $layout $row '使用预设' $preset '官方默认会清除旧采样覆盖；其余档位按当前模型家族的模型卡设置'
 Add-Section 'generation' 'GENERATION' '生成质量、随机性与重复控制'
 $initialEffort=if ($shared.reasoning_effort) {[string]$shared.reasoning_effort} elseif ($cfg.reasoning_effort) {[string]$cfg.reasoning_effort} else {'high'}
-$effort = Make-Combo @('high','medium','low','none') $initialEffort; Add-Row $layout $row '思考强度' $effort '模型默认；请求可自行覆盖'
-$temp = Make-Num ([string]$(if ($null -ne $cfg.sampling.temperature) {$cfg.sampling.temperature} elseif ($null -ne $shared.temperature) {$shared.temperature} else {'0.6'})) 0 2 0.05; Add-Row $layout $row 'Temperature' $temp '随机性；低值更稳定'
-$topP = Make-Num ([string]$(if ($null -ne $cfg.sampling.top_p) {$cfg.sampling.top_p} elseif ($null -ne $shared.top_p) {$shared.top_p} else {'0.95'})) 0.01 1 0.01; Add-Row $layout $row 'Top-p' $topP '候选概率累计阈值'
-$topK = Make-Num ([string]$(if ($null -ne $cfg.sampling.top_k) {$cfg.sampling.top_k} elseif ($null -ne $shared.top_k) {$shared.top_k} else {'20'})) 1 64 1; Add-Row $layout $row 'Top-k' $topK '候选 token 数量'
+$effort = Make-Combo @('high','medium','low','none') $initialEffort; Add-Row $layout $row '默认思考强度' $effort $(if($isDeepSeek){'配置默认值仅支持这四项；API 请求可单独指定 max 或 1–100'}else{'Qwen 配置默认值；API 请求可覆盖'})
+$initialCard=Get-StrataModelCardSampling -Family $generationFamily -Thinking ($initialEffort -ne 'none')
+$temp = Make-Num ([string]$(if ($null -ne $shared.temperature) {$shared.temperature} elseif ($null -ne $cfg.sampling.temperature) {$cfg.sampling.temperature} else {$initialCard.temperature})) 0 2 0.05; Add-Row $layout $row 'Temperature' $temp '随机性；低值更稳定'
+$topP = Make-Num ([string]$(if ($null -ne $shared.top_p) {$shared.top_p} elseif ($null -ne $cfg.sampling.top_p) {$cfg.sampling.top_p} else {$initialCard.top_p})) 0.01 1 0.01; Add-Row $layout $row 'Top-p' $topP '候选概率累计阈值'
+$topK = Make-Num ([string]$(if ($null -ne $shared.top_k) {$shared.top_k} elseif ($null -ne $cfg.sampling.top_k) {$cfg.sampling.top_k} elseif($isDeepSeek){64}else{$initialCard.top_k})) 1 64 1; Add-Row $layout $row 'Top-k' $topK $(if($isDeepSeek){'DeepSeek 模型卡不指定此值；服务模式未覆盖时引擎使用 64'}else{'候选 token 数量；Qwen 模型卡为 20'})
 $minP = Make-Num ([string]$cfg.sampling.min_p) 0 1 0.01; Add-Row $layout $row 'Min-p' $minP '低概率候选过滤；0 表示关闭'
-$presence = Make-Num ([string]$cfg.sampling.presence_penalty) 0 2 0.1; Add-Row $layout $row 'Presence penalty' $presence '降低重复话题倾向'
-$repeat = Make-Num ([string](Get-StrataSamplingValue -Sampling $cfg.sampling -Name 'repetition_penalty' -Alias 'repeat_penalty' -Fallback 1)) 0.5 2 0.05; Add-Row $layout $row 'Repetition penalty' $repeat '重复 token 惩罚；1 表示关闭'
-$freq = Make-Num ([string]$cfg.sampling.frequency_penalty) 0 2 0.1; Add-Row $layout $row 'Frequency penalty' $freq '按出现频次惩罚重复'
-$lastN = Make-Num ([string](Get-StrataSamplingValue -Sampling $cfg.sampling -Name 'penalty_last_n' -Alias 'repeat_last_n' -Fallback 64)) 0 4096 1; Add-Row $layout $row '惩罚回看 token 数' $lastN 'penalty_last_n；0 表示关闭'
+$presenceFallback=if($initialCard.Contains('presence_penalty')){$initialCard.presence_penalty}else{0}
+$presence = Make-Num ([string]$(if($null -ne $cfg.sampling.presence_penalty){$cfg.sampling.presence_penalty}else{$presenceFallback})) 0 2 0.1; if(-not $isDeepSeek){Add-Row $layout $row 'Presence penalty' $presence '降低重复话题倾向'}
+$repeat = Make-Num ([string](Get-StrataSamplingValue -Sampling $cfg.sampling -Name 'repetition_penalty' -Alias 'repeat_penalty' -Fallback 1)) 0.5 2 0.05; if(-not $isDeepSeek){Add-Row $layout $row 'Repetition penalty' $repeat '重复 token 惩罚；1 表示关闭'}
+$freq = Make-Num ([string]$cfg.sampling.frequency_penalty) 0 2 0.1; if(-not $isDeepSeek){Add-Row $layout $row 'Frequency penalty' $freq '按出现频次惩罚重复'}
+$lastN = Make-Num ([string](Get-StrataSamplingValue -Sampling $cfg.sampling -Name 'penalty_last_n' -Alias 'repeat_last_n' -Fallback 64)) 0 4096 1; if(-not $isDeepSeek){Add-Row $layout $row '惩罚回看 token 数' $lastN 'penalty_last_n；0 表示关闭'}
 $seedText = [Windows.Forms.TextBox]::new(); $seedText.Text=if ($null -ne $shared.seed) {[string]$shared.seed} elseif ($null -ne $cfg.sampling.seed) {[string]$cfg.sampling.seed} else {''}; Add-Row $layout $row '随机种子' $seedText '留空表示每次随机'
 $maxOut = Make-Num ([string]$(if ($shared.max_tokens) {$shared.max_tokens} else {'0'})) 0 131072 128; Add-Row $layout $row 'API 默认最大输出' $maxOut '0 表示不设置服务端默认值'
-$reasonBudget = Make-Num ([string]$(if ($cfg.reasoning_budget_tokens) {$cfg.reasoning_budget_tokens} elseif ($shared.reasoning_budget_tokens) {$shared.reasoning_budget_tokens} else {'0'})) 0 131072 256; Add-Row $layout $row '思考 token 上限' $reasonBudget '0 表示不限制思考预算'
+$budgetSource=if($null -ne $shared.PSObject.Properties['reasoning_budget_tokens']){$shared.reasoning_budget_tokens}elseif($null -ne $cfg.PSObject.Properties['reasoning_budget_tokens']){$cfg.reasoning_budget_tokens}else{$null}
+$budgetModeName=if($null -eq $budgetSource){'官方默认'}elseif([int]$budgetSource -eq 0){'不限制（0）'}else{'自定义上限'}
+$reasonBudgetMode=Make-Combo @('官方默认','不限制（0）','自定义上限') $budgetModeName; Add-Row $layout $row '思考预算方式' $reasonBudgetMode $(if($isDeepSeek){'官方默认：DeepSeek 服务端使用默认预算；0：显式取消固定预算'}else{'官方默认：由服务端决定；0：显式取消固定预算'})
+$reasonBudget = Make-Num ([string]$(if($null -ne $budgetSource -and [int]$budgetSource -gt 0){$budgetSource}else{'0'})) 0 131072 256; $reasonBudget.Enabled=($budgetModeName -eq '自定义上限'); Add-Row $layout $row '思考 token 上限' $reasonBudget '选择“自定义上限”时填写大于 0 的值'
+$reasonBudgetMode.Add_SelectedIndexChanged({$reasonBudget.Enabled=([string]$reasonBudgetMode.SelectedItem -eq '自定义上限')})
 Add-Section 'runtime' 'RUNTIME & MEMORY' '上下文、显存与服务运行参数'
-$initialContext=[long](Arg-Value $cfg.args '--max-context' '131072')
+$initialContext=Get-StrataInitialContext -Config $cfg
 $initialContextItem=Context-Item $initialContext
 if ($script:ContextItems -notcontains $initialContextItem) { $script:ContextItems += $initialContextItem }
 $ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方默认 8192；模型原生 64K，元数据支持 YaRN ×16 到 1M；官方只验证到 8192，更大更占显存/内存'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
 if ($isDeepSeek) {
-    # The "as fast as it gets" preset needs a figure this PC can actually lend; without one the preset is not
-    # offered at all, so no machine is ever handed a number that came from somewhere else.
-    $script:DsSsdSuggested = Get-StrataSuggestedSsdCache
-    $dsPresetItems = @('自动（均衡）')
-    if ($script:DsSsdSuggested -gt 0) { $dsPresetItems += '尽可能快（多吃内存）' }
-    $dsPresetItems += @('省内存（少占内存）','自定义')
-    $dsPreset = Make-Combo $dsPresetItems '自动（均衡）'; Add-Row $layout $row '性能预设' $dsPreset '一次写好下面四项；手改任一项会自动显示「自定义」。'
+    $dsPresetItems = @('自动（官方默认）','热专家优先（LFU）','省内存（关闭 RAM 缓存）','自定义')
+    $dsPreset = Make-Combo $dsPresetItems '自动（官方默认）'; Add-Row $layout $row '专家缓存预设' $dsPreset '官方默认交给 DeepSeek 引擎自动选择容量；LFU 只改变淘汰策略，不固定缓存大小。'
     $dsReserve = Make-Num ([string]$deepSeekSettings.ReserveMib) 0 32768 128; Add-Row $layout $row '显存预留 MiB' $dsReserve '引擎的 --reserve-mib；0 = 自动（不写该参数）'
     $dsThreads = Make-Num ([string]$deepSeekSettings.CpuThreads) 0 128 1; Add-Row $layout $row 'CPU 线程数' $dsThreads '引擎的 --cpu-threads；0 = 引擎自动'
-    $dsDspark = Make-Combo @('auto','on','off') ([string]$deepSeekSettings.Dspark); Add-Row $layout $row 'DSpark 草稿' $dsDspark 'auto：专家放不进显存时不加载草稿；off 仍会加载，官方不建议'
+    $dsDspark = Make-Combo @('auto','on','off','none') ([string]$deepSeekSettings.Dspark); Add-Row $layout $row 'DSpark 草稿' $dsDspark 'auto：按引擎规则决定；off：仍加载草稿权重；none：完全不加载草稿'
+    $script:DsConfiguredEngineVersion=Get-StrataDeepSeekConfiguredEngineVersion -Config $cfg -Root $Root -FallbackVersion ([string]$LauncherEnvironment.DeepSeekEngineVersion)
+    $script:DsExpertsSupported=Test-StrataDeepSeekExpertsSupported -Version $script:DsConfiguredEngineVersion
+    $dsSpeedChoice=if([string]$deepSeekSettings.Experts -eq '5'){'Faster（5 专家）'}elseif([string]$deepSeekSettings.Experts -eq '6'){'Full（6 专家）'}else{'自动（引擎默认）'}
+    $dsSpeed=Make-Combo @('自动（引擎默认）','Faster（5 专家）','Full（6 专家）') $dsSpeedChoice
+    $dsSpeed.Enabled=$script:DsExpertsSupported
+    $dsSpeedHint=if($script:DsExpertsSupported){"当前配置引擎 $($script:DsConfiguredEngineVersion)：自动按显卡容量选择；Faster 每 token 用 5 个专家，Full 用 6 个"}else{"当前配置引擎 $($script:DsConfiguredEngineVersion) 低于 0.1.50 或版本未知；此选项已禁用，保存时不会写 --experts"}
+    Add-Row $layout $row 'DeepSeek Speed' $dsSpeed $dsSpeedHint
     $dsConf = [Windows.Forms.TextBox]::new(); $dsConf.Text=[string]$deepSeekSettings.DsparkConf; $dsConf.Width=120; Add-Row $layout $row 'DSpark 置信度' $dsConf '留空 = 保留官方值/引擎默认（IST-DAS 官方写 0.65）；0 = 关闭草稿'
-    $dsSsdHint = '留空 = 引擎自动（其上限是 48 GB）；填 GB 数字 = 显存放不下的专家改从内存读取、不再读盘'
-    if ($script:DsSsdSuggested -gt 0) { $dsSsdHint += "；本机可填 $($script:DsSsdSuggested) GB（可用内存减 12 GB 与物理内存六成取小，保存时按当时的数值重算）" }
-    else { $dsSsdHint += '；本机可用内存偏少，建议留空交给引擎' }
+    $dsSsdHint = '留空 = 引擎按可用 RAM 与模型大小自动分配并保留约 12 GB；0 = 关闭 RAM 专家缓存；正数 = 自定义 GB。请勿填写 auto。'
     $dsSsd = [Windows.Forms.TextBox]::new(); $dsSsd.Text=[string]$deepSeekSettings.SsdCache; Add-Row $layout $row 'SSD 专家缓存' $dsSsd $dsSsdHint
     $dsPolicy = Make-Combo @('默认','lru','lfu','lfu→lru') (Get-StrataSsdPolicyItem ([string]$deepSeekSettings.SsdPolicy)); Add-Row $layout $row '专家缓存淘汰' $dsPolicy '默认 = 引擎的 lru；lfu 护住反复命中的热专家（缓存装不下全部专家时更划算）；lfu→lru 先比命中次数、同分再看时间'
     $dsMmap = Make-Combo @('默认','auto','on','off') (Get-StrataMmapItem ([string]$deepSeekSettings.MmapExperts)); Add-Row $layout $row '专家读盘方式' $dsMmap '默认/auto = 显存放不下的专家就地读（省内存、吃盘）；on = 强制就地读；off = 能放下的全拷进内存（省盘，选它会自动把专家缓存置 0）'
     $dsVram = Make-Num ([string]$deepSeekSettings.VramExperts) 0 1 0.05; Add-Row $layout $row '显存专家份额' $dsVram '0 = 引擎默认（用满）；0.9 = 只拿九成显存额度放专家，给长上下文和桌面留余量；范围 0–1'
     $dsPrefill = Make-Num ([string]$deepSeekSettings.PrefillChunk) 0 65536 256; Add-Row $layout $row '预填充分块' $dsPrefill '引擎的 --prefill-chunk；0 = 引擎自动；越大越省读盘次数，越占显存缓冲'
-    $dsDblock = Make-Num ([string]$deepSeekSettings.DsparkBlock) 0 8 1; Add-Row $layout $row 'DSpark 草稿块' $dsDblock '0 = 包内默认；官方调优会试 3（草稿更短、命中更高）；范围 0–8'
-    Connect-StrataDeepSeekPresetControls -Selector $dsPreset -Controls ([ordered]@{ Ssd = $dsSsd; Policy = $dsPolicy; Mmap = $dsMmap; Vram = $dsVram; DsparkBlock = $dsDblock }) -SsdCacheGb $script:DsSsdSuggested
+    $dsDblock = Make-Num ([string]$deepSeekSettings.DsparkBlock) 0 16 1; Add-Row $layout $row 'DSpark 草稿块' $dsDblock '0 = 包内默认；官方调优会试 3（草稿更短、命中更高）；范围 0–16'
+    Connect-StrataDeepSeekPresetControls -Selector $dsPreset -Controls ([ordered]@{ Ssd = $dsSsd; Policy = $dsPolicy })
 } else {
-    $kv = Make-Combo @('int8','q4_0','k8v4') ([string](Arg-Value $cfg.args '--kv' 'int8')); Add-Row $layout $row 'KV cache 格式' $kv '更省显存的格式可能影响速度/质量'
-    $kvResident = Make-Combo @('8192','16384','32768','65536','关闭') ([string](Arg-Value $cfg.args '--kv-resident' '32768')); Add-Row $layout $row '驻留 KV token' $kvResident '窗口越大通常越占显存'
-    $reserve = Make-Num ([string](Arg-Value $cfg.args '--vram-reserve-mib' '990')) 0 32768 128; Add-Row $layout $row '保留显存 MiB' $reserve '为桌面/视觉预留，越大留给模型越少'
+    $kv = Make-Combo @('fp16','int8','q4_0','k8v4') ([string](Arg-Value $cfg.args '--kv' 'fp16')); Add-Row $layout $row 'KV cache 格式' $kv 'fp16 = 引擎默认；量化格式更省显存，但可能影响速度或质量'
+    $kvResidentCurrent=[string](Arg-Value $cfg.args '--kv-resident' '')
+    $kvResidentChoice=Get-StrataQwenKvResidentChoice -CurrentValue $kvResidentCurrent
+    $kvResident = Make-Combo (Get-StrataQwenKvResidentItems -CurrentValue $kvResidentCurrent) $kvResidentChoice; Add-Row $layout $row '驻留 KV token' $kvResident '关闭 = 引擎默认、全部 KV 留在显存；启用时引擎最少驻留 20480 token'
+    $reserve = Make-Num ([string](Arg-Value $cfg.args '--vram-reserve-mib' '0')) 0 32768 128; Add-Row $layout $row '保留显存 MiB' $reserve '0 = 引擎默认；自定义值为桌面/视觉留出显存'
     $poolWorkers = Make-Num ([string](Arg-Value $cfg.args '--pool-workers' '0')) 0 128 1; Add-Row $layout $row 'CPU 线程数' $poolWorkers '引擎的专家池 worker 数；0 = 自动（物理核心 − 1，上限 32）；超过核心数可能更慢'
     if ($isOwnPath) {
         $kv.Enabled=$false; $kvResident.Enabled=$false; $reserve.Enabled=$false
@@ -600,8 +610,9 @@ if ($isDeepSeek) {
         Add-Row $layout $row '独立引擎参数' $nativeInfo '这些参数由官方 setup 管理；启动器保存时原样保留。'
     }
 }
-$parallelHint=if($isDeepSeek){'DeepSeek 引擎暂不支持并发请求；官方会忽略 --parallel'}else{'并发会增加显存和内存占用'}
-$parallel = Make-Combo @('1','2','3','4') ([string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})); Add-Row $layout $row '并行请求数' $parallel $parallelHint
+$parallelHint=if($isDeepSeek){'DeepSeek 引擎暂不支持并发请求；官方会忽略 --parallel'}else{'并发会增加显存和内存占用；实际槽位数可由引擎下调'}
+$parallelCurrent=[string]$(if ($cfg.parallel) {$cfg.parallel} else {'1'})
+$parallel = Make-Combo (Get-StrataQwenParallelItems -CurrentValue $parallelCurrent) $parallelCurrent; Add-Row $layout $row '并行请求数' $parallel $parallelHint
 if ($isDeepSeek) { $parallel.Enabled=$false; $parallel.SelectedItem='1' }
 Add-Section 'gpu_placement' 'GPU PLACEMENT · NVIDIA' $(if($isDeepSeek){'选择参与 DeepSeek 推理的显卡；引擎自行安排专家分层'}else{'为当前模型指定 Main / Helper / Off；多卡按模型层分工'})
 $gpuPlacementCards=@(Get-StrataNvidiaPlacementCards)
@@ -614,8 +625,17 @@ $canEditGpuPlacement=Test-StrataCudaPlacementBuild -Build $gpuPlacementBuild -Ca
 if ($isDeepSeek) {
     $deepSeekInitialCards=@()
     if ($null -ne $cfg.gpu) { $deepSeekInitialCards=@($cfg.gpu | ForEach-Object { [int]$_ }) }
-    $deepSeekAllCards=($deepSeekInitialCards.Count -eq 0)
+    $deepSeekHasSavedRoles=($null -ne $cfg.PSObject.Properties['gpu_roles'] -and $null -ne $cfg.gpu_roles)
+    if($deepSeekInitialCards.Count -eq 0 -and $deepSeekHasSavedRoles){
+        $deepSeekInitialCards=@(Get-StrataGpuPlacementRoles -Config $cfg -Cards $gpuPlacementCards | Where-Object Role -NE 'off' | ForEach-Object {[int]$_.Index})
+    }
+    $deepSeekAllCards=($deepSeekInitialCards.Count -eq 0 -and -not $deepSeekHasSavedRoles)
     $deepSeekCardBoxes=@{}
+    $deepSeekUiInitialCards=@()
+    if($gpuPlacementCards.Count -eq 0){
+        $deepSeekGpuNote=[Windows.Forms.Label]::new(); $deepSeekGpuNote.AutoSize=$true; $deepSeekGpuNote.Text='未检测到 NVIDIA 显卡；保存时保留现有 DeepSeek GPU 配置。'
+        Add-Row $layout $row '推理显卡' $deepSeekGpuNote 'AMD 与其他后端的显卡选择请使用 Strata 官方命令行。'
+    }
     foreach($card in $gpuPlacementCards){
         $memoryGiB=[Math]::Round([double]$card.MemoryMiB/1024,1)
         $pciLocation=Convert-StrataGpuPciBusIdToWindowsLocation ([string]$card.BusId)
@@ -626,13 +646,14 @@ if ($isDeepSeek) {
         $box=[Windows.Forms.CheckBox]::new(); $box.Text='参与推理'
         $enough = ([double]$card.MemoryMiB -ge 8192)
         $box.Checked=($enough -and ($deepSeekAllCards -or ($deepSeekInitialCards -contains [int]$card.Index)))
+        if($box.Checked){$deepSeekUiInitialCards+=[int]$card.Index}
         $box.Enabled=$enough
         if (-not $enough) { $cardHint+=' · 显存不足 8 GiB，不能参与' }
         $deepSeekCardBoxes[[int]$card.Index]=$box
         Add-Row $layout $row $cardLabel $box $cardHint
     }
-    $tpChoices=@('自动（引擎默认）','1','2')
-    $tpSelected=if([string]$deepSeekSettings.Tp -in @('1','2')){[string]$deepSeekSettings.Tp}else{'自动（引擎默认）'}
+    $tpChoices=@(Get-StrataDeepSeekTpItems -CurrentValue ([string]$deepSeekSettings.Tp))
+    $tpSelected=if([string]$deepSeekSettings.Tp -in $tpChoices){[string]$deepSeekSettings.Tp}else{'自动（引擎默认）'}
     $dsTp=Make-Combo $tpChoices $tpSelected
     Add-Row $layout $row '张量并行 --tp' $dsTp '自动 = 引擎默认（2 卡及以上为 2）；1 = 纯层切分，4 卡以上 AMD 时官方建议 1'
 } else {
@@ -798,8 +819,9 @@ $usageControls=@{
     effort=$effort; temperature=$temp; top_p=$topP; top_k=$topK; min_p=$minP
     presence_penalty=$presence; repetition_penalty=$repeat; frequency_penalty=$freq
     penalty_last_n=$lastN; seed=$seedText; max_tokens=$maxOut; reasoning_budget_tokens=$reasonBudget
+    budget_mode=$reasonBudgetMode
 }
-Connect-StrataUsagePresetControls -Selector $preset -Controls $usageControls
+Connect-StrataUsagePresetControls -Selector $preset -Controls $usageControls -Family $generationFamily
 $modelSwitch.Add_Click({
     try {
         $picked=$modelConfigs | Where-Object { $_.Label -eq [string]$modelSelector.SelectedItem } | Select-Object -First 1
@@ -1087,18 +1109,7 @@ function Save-Settings {
     $contextValue=Context-Value $ctx.SelectedItem
     if ($isDeepSeek) {
         # dsv41 rejects unknown flags, so save only its own arguments and keep the official ones as they are.
-        # A figure the launcher suggested (not one the user typed) is recomputed here against the memory free
-        # right now, so the saved number belongs to this machine at this moment rather than to the PC the
-        # window was opened on.  A hand-typed figure is never touched.
         $ssdText = $dsSsd.Text.Trim()
-        if ($script:DsSsdSuggested -gt 0 -and $ssdText -eq [string]$script:DsSsdSuggested) {
-            $freshSuggestion = Get-StrataSuggestedSsdCache
-            if ($freshSuggestion -gt 0 -and $freshSuggestion -ne $script:DsSsdSuggested) {
-                $ssdText = [string]$freshSuggestion
-                $dsSsd.Text = $ssdText
-                $script:DsSsdSuggested = $freshSuggestion
-            }
-        }
         $deepSeekSave=[pscustomobject]@{
             Context      = $contextValue
             ReserveMib   = $(if ([decimal]$dsReserve.Value -gt 0) { NText $dsReserve } else { '' })
@@ -1112,6 +1123,8 @@ function Save-Settings {
             PrefillChunk = $(if ([decimal]$dsPrefill.Value -gt 0) { NText $dsPrefill } else { '' })
             DsparkBlock  = $(if ([decimal]$dsDblock.Value -gt 0) { NText $dsDblock } else { '' })
             Tp           = $(if ($dsTp.SelectedIndex -le 0) { '' } else { ([string]$dsTp.SelectedItem).Trim() })
+            Experts      = $(if ($dsSpeed.SelectedIndex -eq 1) { '5' } elseif ($dsSpeed.SelectedIndex -eq 2) { '6' } else { '' })
+            ExpertsSupported = [bool]$script:DsExpertsSupported
         }
         $confValue=[double]0
         if ($deepSeekSave.DsparkConf -and (-not [double]::TryParse($deepSeekSave.DsparkConf,[ref]$confValue) -or $confValue -lt 0 -or $confValue -gt 1)) {
@@ -1128,16 +1141,12 @@ function Save-Settings {
         $new.PSObject.Properties.Remove('parallel')
         $selectedCards=@()
         foreach ($index in $deepSeekCardBoxes.Keys) { if ($deepSeekCardBoxes[$index].Checked) { $selectedCards += [int]$index } }
-        $initialCards=@()
-        if ($null -ne $cfg.gpu) { $initialCards=@($cfg.gpu | ForEach-Object { [int]$_ }) }
-        $sameSelection = if ($initialCards.Count -eq 0) {
-            ($selectedCards.Count -eq $gpuPlacementCards.Count)
-        } else {
-            ((@($selectedCards | Sort-Object) -join ',') -eq (@($initialCards | Sort-Object) -join ','))
-        }
-        if (-not $sameSelection) {
+        if (Test-StrataDeepSeekGpuSelectionChanged -Initial ([int[]]$deepSeekUiInitialCards) -Selected ([int[]]$selectedCards) -AvailableCount $gpuPlacementCards.Count) {
             $new = Set-StrataDeepSeekGpuConfig -Config $new -Cards $gpuPlacementCards -CurrentCards @(Get-StrataNvidiaPlacementCards) -Selected ([int[]]$selectedCards)
+        } elseif ($gpuPlacementCards.Count -gt 0 -and $new.PSObject.Properties['gpu_cards']) {
+            Assert-StrataGpuPlacementIdentity -Config $new -Cards @(Get-StrataNvidiaPlacementCards)
         }
+        $new = Remove-StrataDeepSeekUnsupportedConfig -Config $new
     } elseif ($isOwnPath) {
         $a = [Collections.ArrayList]::new()
         foreach ($item in (Set-StrataNativeContextArgs -ArgsList @($new.args) -MaxContext $contextValue)) { [void]$a.Add([string]$item) }
@@ -1151,9 +1160,9 @@ function Save-Settings {
         Set-Arg $a '--rope-scaling' $null
         Set-Arg $a '--rope-scale' $null
     }
-    Set-Arg $a '--kv' ([string]$kv.SelectedItem)
+    Set-Arg $a '--kv' $(if([string]$kv.SelectedItem -eq 'fp16'){$null}else{[string]$kv.SelectedItem})
     if ($kvResident.SelectedItem -eq '关闭') { Set-Arg $a '--kv-resident' $null } else { Set-Arg $a '--kv-resident' ([string]$kvResident.SelectedItem) }
-    Set-Arg $a '--vram-reserve-mib' (NText $reserve)
+    Set-Arg $a '--vram-reserve-mib' $(if([int]$reserve.Value -gt 0){NText $reserve}else{$null})
     if ($vision.Checked) {
         $new | Add-Member -NotePropertyName vision -NotePropertyValue (Get-StrataVisionConfigForSave -Config $new -SidecarPath $visionPath -Root $Root) -Force
         if ($a -notcontains '--vision') { $a.Add('--vision') | Out-Null }
@@ -1176,18 +1185,27 @@ function Save-Settings {
         }
     }
     if ([int]$parallel.SelectedItem -le 1) { $new.PSObject.Properties.Remove('parallel') } else { $new | Add-Member -NotePropertyName parallel -NotePropertyValue ([int]$parallel.SelectedItem) -Force }
-    $sampling = [pscustomobject]@{ temperature=[double](NText $temp); top_p=[double](NText $topP); top_k=[int]$topK.Value; min_p=[double](NText $minP); presence_penalty=[double](NText $presence); repetition_penalty=[double](NText $repeat); frequency_penalty=[double](NText $freq); penalty_last_n=[int]$lastN.Value }
-    $new | Add-Member -NotePropertyName sampling -NotePropertyValue (Merge-StrataSampling -Existing $new.sampling -Edited $sampling -SeedText $seedText.Text) -Force
-    $new | Add-Member -NotePropertyName reasoning_effort -NotePropertyValue ([string]$effort.SelectedItem) -Force
-    if ([int]$reasonBudget.Value -gt 0) { $new | Add-Member -NotePropertyName reasoning_budget_tokens -NotePropertyValue ([int]$reasonBudget.Value) -Force } else { $new.PSObject.Properties.Remove('reasoning_budget_tokens') }
-    Backup-Once $ConfigPath; Atomic-Json $ConfigPath $new
-    if ($sharedDefaults.Checked) {
-        $s=[ordered]@{ reasoning_effort=[string]$effort.SelectedItem; temperature=[double](NText $temp); top_p=[double](NText $topP); top_k=[int]$topK.Value }
-        if ([int]$reasonBudget.Value -gt 0) { $s.reasoning_budget_tokens=[int]$reasonBudget.Value }
-        if ([int]$maxOut.Value -gt 0) { $s.max_tokens=[int]$maxOut.Value }
-        if ($seedText.Text.Trim()) { $s.seed=[long]$new.sampling.seed }
-        if (Test-Path -LiteralPath $sharedPath) { Backup-Once $sharedPath }; Atomic-Json $sharedPath ([pscustomobject]$s)
+    $selectedPreset=[string]$preset.SelectedItem
+    $sampling=[pscustomobject]@{temperature=[double](NText $temp);top_p=[double](NText $topP);top_k=[int]$topK.Value;min_p=[double](NText $minP);presence_penalty=[double](NText $presence);repetition_penalty=[double](NText $repeat);frequency_penalty=[double](NText $freq);penalty_last_n=[int]$lastN.Value}
+    $savedSampling=Get-StrataSamplingForSave -Existing $new.sampling -Family $generationFamily -PresetName $selectedPreset -Edited $sampling -SeedText $seedText.Text
+    if(@($savedSampling.PSObject.Properties).Count -gt 0){$new | Add-Member -NotePropertyName sampling -NotePropertyValue $savedSampling -Force}else{$new.PSObject.Properties.Remove('sampling')}
+    $effortValue=Get-StrataReasoningEffortValue -Family $generationFamily -Choice ([string]$effort.SelectedItem)
+    $budgetValue=Get-StrataReasoningBudgetValue -Mode ([string]$reasonBudgetMode.SelectedItem) -Value ([int]$reasonBudget.Value)
+    if($selectedPreset -eq '官方默认'){$new.PSObject.Properties.Remove('reasoning_effort');$new.PSObject.Properties.Remove('reasoning_budget_tokens')}
+    else{
+        $new | Add-Member -NotePropertyName reasoning_effort -NotePropertyValue $effortValue -Force
+        if($null -ne $budgetValue){$new | Add-Member -NotePropertyName reasoning_budget_tokens -NotePropertyValue $budgetValue -Force}else{$new.PSObject.Properties.Remove('reasoning_budget_tokens')}
     }
+    Backup-Once $ConfigPath; Atomic-Json $ConfigPath $new
+    $s=[ordered]@{}
+    if($sharedDefaults.Checked -and $selectedPreset -ne '官方默认'){
+        $s.reasoning_effort=$effortValue
+        if($null -ne $new.sampling){foreach($key in @('temperature','top_p','top_k')){if($null -ne $new.sampling.PSObject.Properties[$key]){$s[$key]=$new.sampling.$key}}}
+        if($null -ne $budgetValue){$s.reasoning_budget_tokens=$budgetValue}
+        if([int]$maxOut.Value -gt 0){$s.max_tokens=[int]$maxOut.Value}
+        if($seedText.Text.Trim() -and $null -ne $new.sampling.seed){$s.seed=[long]$new.sampling.seed}
+    }
+    if (Test-Path -LiteralPath $sharedPath) { Backup-Once $sharedPath }; Atomic-Json $sharedPath (Merge-StrataSharedDefaults -Existing $shared -Edited ([pscustomobject]$s))
     Set-StrataLanMode -Path $LanModePath -Enabled ([bool]$lanAccess.Checked)
     return $new
 }
