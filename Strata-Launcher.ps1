@@ -217,6 +217,10 @@ if (-not (Test-Path -LiteralPath $LauncherSettingsModule)) { throw '找不到 la
 $LauncherSettingsSource = Get-Content -LiteralPath $LauncherSettingsModule -Raw -Encoding UTF8
 . ([scriptblock]::Create($LauncherSettingsSource))
 $cfg = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+# A config written before a DeepSeek engine upgrade names the engine folder that the upgrade deleted: repair the file
+# (the server reads it) and the copy in memory (this window writes it back on save) before anything uses them.
+$EnginePathRepairs = @(Repair-StrataEngineConfigFiles -Root $Root)
+$cfg = Repair-StrataConfigEnginePath -Config $cfg -Root $Root
 $cfg.args = @(Get-StrataEffectiveArgs -Config $cfg)
 $initialEngineArgs = [string[]]@($cfg.args)
 $isOwnPath = Test-StrataOwnPathConfig -Config $cfg
@@ -861,6 +865,10 @@ if ($LauncherEnvironment.EngineWarning) {
     $status.Text += ' · 引擎版本偏旧，旧版仍可启动'
     $modelToolTip.SetToolTip($status, [string]$LauncherEnvironment.EngineWarning)
 }
+if ($EnginePathRepairs.Count) {
+    $status.Text += " · 已修正 $($EnginePathRepairs.Count) 个模型配置的引擎路径"
+    $modelToolTip.SetToolTip($status, (($EnginePathRepairs | ForEach-Object { "$($_.Config) → $(Split-Path -Leaf $_.To)" }) -join "`r`n"))
+}
 
 $modelSwitch.Tag='button:Secondary'; $calibrate.Tag='button:Secondary'; $benchmark.Tag='button:Accent'
 $lanKeyCopy.Tag='button:Secondary'; $lanFirewallAdd.Tag='button:Secondary'; $lanFirewallRemove.Tag='button:Secondary'
@@ -1138,6 +1146,8 @@ function Save-Settings {
     Assert-InstallWritable
     if ($lanAccess.Checked) { [void](Get-StrataLanLaunchSettings -Enabled $true -KeyPath $LanKeyPath) }
     $new = Json-Clone $cfg
+    # An engine upgrade can replace the engine's folder while this window is open; never write the stale path back.
+    $new = Repair-StrataConfigEnginePath -Config $new -Root $Root
     $a = [Collections.ArrayList]::new(); foreach ($item in $new.args) { [void]$a.Add([string]$item) }
     $contextValue=Context-Value $ctx.SelectedItem
     if ($isDeepSeek) {

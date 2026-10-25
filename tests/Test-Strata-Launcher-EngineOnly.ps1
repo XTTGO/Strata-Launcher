@@ -97,6 +97,8 @@ try {
     $dsConfig = Join-Path $probe 'strata-deepseek-test.json'
     $configText = '{"exe": "' + $oldExe.Replace('\', '\\') + '", "args": [], "model_name": "deepseek-test", "lib_dirs": ["' + $dsDir.Replace('\', '\\') + '"]}'
     [IO.File]::WriteAllText($dsConfig, $configText)
+    # the official upgrade deleted the old package folder: the config now names a file that does not exist
+    Remove-Item -LiteralPath $dsDir -Recurse -Force
     $resultStub = 'using System; public class Program { public static int Main(string[] args) { Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.51\", \"after\": \"0.1.51\"}"); return 0; } }'
     Add-Type -TypeDefinition $resultStub -OutputType ConsoleApplication -OutputAssembly (Join-Path $probe 'python\python.exe')
     if ((Invoke-Updater @('-DeepSeekEngineOnly')) -ne 0) { throw 'The DeepSeek engine update failed while re-pointing a run config.' }

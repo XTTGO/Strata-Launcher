@@ -452,3 +452,68 @@ function Resolve-StrataLauncherRoot {
     }
     return $candidate
 }
+function Repair-StrataConfigEnginePath {
+    param(
+        [Parameter(Mandatory=$true)]$Config,
+        [Parameter(Mandatory=$true)][string]$Root,
+        [string]$NewEngineExe = ''
+    )
+
+    # A model config names its engine by absolute path, and the DeepSeek engine upgrade installs a new versioned
+    # package folder and then deletes the old one: a config written before that names a file which no longer exists,
+    # and the start dies inside CreateProcess (WinError 2). Re-point it — only when the named engine is missing (a
+    # working config is never touched), only the DeepSeek engine (engine-dsv41), and only to an installed engine.
+    $exe = [string]$Config.exe
+    if (-not $exe -or (Test-Path -LiteralPath $exe)) { return $Config }
+    if ($exe -notmatch '[\\/]engine-dsv41[\\/]') { return $Config }
+    $replacement = $NewEngineExe
+    if (-not $replacement) { $replacement = [string](Get-StrataDeepSeekEngineStatus -Root $Root).Path }
+    if (-not $replacement -or -not (Test-Path -LiteralPath $replacement -PathType Leaf)) { return $Config }
+    $oldFolder = Split-Path -Parent $exe
+    $newFolder = Split-Path -Parent $replacement
+    $Config.exe = $replacement
+    if ($Config.PSObject.Properties['lib_dirs'] -and $Config.lib_dirs) {
+        $dirs = @()
+        foreach ($dir in @($Config.lib_dirs)) {
+            $dirs += $(if ([string]::Equals([string]$dir, $oldFolder, [StringComparison]::OrdinalIgnoreCase)) { $newFolder } else { [string]$dir })
+        }
+        $Config.lib_dirs = $dirs
+    }
+    return $Config
+}
+
+function Repair-StrataEngineConfigFiles {
+    param(
+        [Parameter(Mandatory=$true)][string]$Root,
+        [string]$NewEngineExe = ''
+    )
+
+    # The same repair on disk, before the server reads a run config: only the engine's folder path is replaced, the
+    # rest of the file stays byte for byte (the JSON writer would reformat the whole config).
+    $newExe = $NewEngineExe
+    if (-not $newExe) { $newExe = [string](Get-StrataDeepSeekEngineStatus -Root $Root).Path }
+    if (-not $newExe -or -not (Test-Path -LiteralPath $newExe -PathType Leaf)) { return @() }
+    $newFolder = Split-Path -Parent $newExe
+    $fixed = @()
+    foreach ($file in @(Get-ChildItem -LiteralPath $Root -File -Filter 'strata-*.json' -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        if ($file.Name -like '*.shared-settings.json') { continue }
+        $raw = [IO.File]::ReadAllText($file.FullName, [Text.Encoding]::UTF8)
+        if ($raw -notmatch 'engine-dsv41') { continue }
+        $config = $null
+        try { $config = $raw | ConvertFrom-Json } catch { continue }
+        if (-not $config -or -not $config.exe) { continue }
+        $exe = [string]$config.exe
+        if (Test-Path -LiteralPath $exe) { continue }
+        if ($exe -notmatch '[\\/]engine-dsv41[\\/]') { continue }
+        $oldFolder = Split-Path -Parent $exe
+        if (-not $oldFolder -or $oldFolder -eq $newFolder) { continue }
+        $updated = $raw.Replace($oldFolder.Replace('\', '\\'), $newFolder.Replace('\', '\\'))
+        $updated = $updated.Replace(($oldFolder -replace '\\', '/'), ($newFolder -replace '\\', '/'))
+        if ($updated -eq $raw) { continue }
+        $bytes = [IO.File]::ReadAllBytes($file.FullName)
+        $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+        [IO.File]::WriteAllText($file.FullName, $updated, (New-Object Text.UTF8Encoding($hasBom)))
+        $fixed += [pscustomobject]@{ Config = $file.Name; From = $oldFolder; To = $newFolder }
+    }
+    return $fixed
+}

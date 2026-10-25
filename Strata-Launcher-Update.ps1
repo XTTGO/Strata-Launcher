@@ -394,38 +394,9 @@ raise SystemExit(0 if now else 6)
     $binary = (& $verify.Path --version 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $binary -notmatch '\d+(?:\.\d+)+') { throw "strata-dsv41.exe 无法报告版本：$binary" }
     Write-Host "验证通过：$binary（$($verify.Path)）"
-    foreach ($fixed in @(Repair-StrataDeepSeekConfigPaths -NewEngineExe ([string]$verify.Path))) {
+    foreach ($fixed in @(Repair-StrataEngineConfigFiles -Root $root -NewEngineExe ([string]$verify.Path))) {
         Write-Host "  已把 $($fixed.Config) 的引擎路径改到 $(Split-Path -Leaf $fixed.To)（官方升级只保留一代，旧目录已被删除）"
     }
-}
-
-function Repair-StrataDeepSeekConfigPaths {
-    # The official upgrade installs a new versioned package folder and then deletes the old one, but a run config
-    # holds the engine's absolute path (and its folder in lib_dirs). Without this the model's next start names a
-    # folder that no longer exists and dies before the engine runs (seen 2026-10-26: 0.1.51 installed, the config
-    # still naming 0.1.49.2). Only that path is rewritten; the rest of the file stays byte for byte.
-    param([Parameter(Mandatory = $true)][string]$NewEngineExe)
-
-    $newFolder = Split-Path -Parent $NewEngineExe
-    $fixed = @()
-    foreach ($file in @(Get-ChildItem -LiteralPath $root -File -Filter 'strata-*.json' -ErrorAction SilentlyContinue | Sort-Object Name)) {
-        if ($file.Name -like '*.shared-settings.json') { continue }
-        $raw = [IO.File]::ReadAllText($file.FullName, [Text.Encoding]::UTF8)
-        if ($raw -notmatch 'engine-dsv41') { continue }
-        $config = $null
-        try { $config = $raw | ConvertFrom-Json } catch { continue }
-        if (-not $config -or -not $config.exe) { continue }
-        $oldFolder = Split-Path -Parent ([string]$config.exe)
-        if (-not $oldFolder -or $oldFolder -eq $newFolder) { continue }
-        $updated = $raw.Replace($oldFolder.Replace('\', '\\'), $newFolder.Replace('\', '\\'))
-        $updated = $updated.Replace(($oldFolder -replace '\\', '/'), ($newFolder -replace '\\', '/'))
-        if ($updated -eq $raw) { continue }
-        $bytes = [IO.File]::ReadAllBytes($file.FullName)
-        $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
-        [IO.File]::WriteAllText($file.FullName, $updated, (New-Object Text.UTF8Encoding($hasBom)))
-        $fixed += [pscustomobject]@{ Config = $file.Name; From = $oldFolder; To = $newFolder }
-    }
-    return $fixed
 }
 
 function Assert-EngineUpdated {
