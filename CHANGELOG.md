@@ -1,6 +1,16 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前版本为 `0.1.9`；针对本机 Strata `v0.2.6` 源码安装版校验，Qwen 引擎 `0.1.50`（官方 0.2.6 随附版本，已用「更新引擎（最新）」从 `0.1.48` 实机升级），DeepSeek 引擎 `0.1.49.2`。
+启动器版本独立于 Strata 官方版本。当前版本为 `0.1.10`；针对本机 Strata `v0.2.6` 源码安装版校验，Qwen 引擎 `0.1.50`（官方 0.2.6 随附版本，已用「更新引擎（最新）」从 `0.1.48` 实机升级），DeepSeek 引擎 `0.1.49.2`。
+
+## 0.1.10 — 2026-10-26
+
+- 修正 DeepSeek 引擎升级后的启动失败（0.1.9 只在“点更新按钮”时改配置，漏了另一种触发）：官方升级把引擎装到新的版本目录、删掉旧目录，而模型配置记的是绝对 `exe` 路径。如果升级时启动器窗口已经开着，它的「保存并启动」会把内存里的旧路径写回去（`Save-Settings` 的 `Json-Clone $cfg`），模型下一次启动就在 `serve\server.py` 的 CreateProcess 里失败（`FileNotFoundError: [WinError 2]`）。
+  - **打开启动器时**就把指向已删除引擎目录的配置改到已安装的那一份，状态栏写“已修正 N 个模型配置的引擎路径”。
+  - **保存之前**再校验一次，窗口开在升级之前也不会写回旧路径。
+  - 只处理 `engine-dsv41` 下的绝对路径、且只在“配置里的引擎确实不存在”时动手；能正常启动的配置和 `engine\strata.exe`（Qwen）一概不碰，第二次执行零改动。
+- 修复逻辑收到分享包共用的 `Strata-Launcher-Environment.ps1`（`Repair-StrataConfigEnginePath` / `Repair-StrataEngineConfigFiles`），更新脚本与启动器共用同一份，避免两处漂移。
+- 发布工具（不打进分享包）：`git tag -d` 在标签不存在时向 stderr 写一行，PowerShell 5.1 在 `ErrorActionPreference=Stop` 下把它当终止错误，发布会在“打标签”这步中断（0.1.9 首次发布时实测）；push / tag / fetch 现在统一走 `Invoke-ReleaseGit`（Continue + 只看退出码）。
+- 验证：新增 `tests\Test-Strata-Launcher-EngineConfigPath.ps1`；40 个 PowerShell 与 139 个 Python 测试通过；本机实测把 DeepSeek 配置改回已删除的 `0.1.49.2`，打开启动器后被自动改到 `0.1.51`，模型启动 `/health loaded: true`。
 
 ## 0.1.9 — 2026-10-26
 

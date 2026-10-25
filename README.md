@@ -2,9 +2,9 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-最新正式版：**v0.1.9** · 针对 **Strata v0.2.6 / 引擎 0.1.50 / DeepSeek 0.1.49.2** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.9)
+最新正式版：**v0.1.10** · 针对 **Strata v0.2.6 / 引擎 0.1.50 / DeepSeek 0.1.51** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.10)
 
-v0.1.9 新增两个引擎更新入口：「更新引擎（Qwen）」直接从官方签名更新源取最新引擎（不再受 `MIN_ENGINE` 兼容下限限制，旧引擎留在 `engine\.previous` 可回退），「更新引擎（DeepSeek）」走 DeepSeek 自己的升级函数（签名、逐文件哈希、`--version` 试启动）；下载中断会自动续传。v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、`--mmap-experts`、`--vram-experts`、`--dspark-block`），每项都带说明与范围。
+v0.1.10 修掉引擎升级后的一个启动坑：官方把 DeepSeek 引擎装到新的版本目录并删掉旧目录，而模型配置记的是绝对 `exe` 路径——升级时若启动器窗口已经开着，它的「保存并启动」会把旧路径写回，模型随后启动失败（`FileNotFoundError: [WinError 2]`）。现在启动器**打开时**和**保存前**都会把指向已删除引擎目录的配置改到已安装的那一份（只改 `engine-dsv41` 的路径，能用的配置与 Qwen 引擎不碰）。v0.1.9 的两个引擎更新入口（Qwen 走官方签名源、DeepSeek 走官方升级函数，含断流续传）都在这一版里。
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -37,7 +37,7 @@ v0.1.9 新增两个引擎更新入口：「更新引擎（Qwen）」直接从官
 ## 快速开始
 
 1. 在 Windows 10 或 11 上，通过 Strata 的 `START-HERE.bat` 完成源码安装，并安装至少一个模型。
-2. 从 [v0.1.9 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.9) 下载 `Strata-Launcher-v0.1.9-for-existing-install.zip`。
+2. 从 [v0.1.10 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.10) 下载 `Strata-Launcher-v0.1.10-for-existing-install.zip`。
 3. 解压后，将整个 `launcher` 文件夹放进 Strata 根目录，与 `START-HERE.bat` 并列。
 4. 双击 `launcher\Strata-Launcher.bat`。
 
@@ -69,8 +69,9 @@ v0.1.9 新增两个引擎更新入口：「更新引擎（Qwen）」直接从官
 - [详细安装与功能说明](README.txt)
 - [发布规则（怎么发一个版本）](docs/RELEASE.md)
 - [版本更新记录](CHANGELOG.md)
+- [v0.1.10 发布说明与 SHA-256](releases/v0.1.10/RELEASE_NOTES.md)
 - [v0.1.9 发布说明与 SHA-256](releases/v0.1.9/RELEASE_NOTES.md)
 - [v0.1.8 发布说明与 SHA-256](releases/v0.1.8/RELEASE_NOTES.md)
 - [v0.1.7.5 发布说明与 SHA-256](releases/v0.1.7.5/RELEASE_NOTES.md)
 
-v0.1.9 的发布验证记录见对应发布说明：139 个 Python 测试与 39 个 PowerShell 测试通过；本机 Strata v0.2.6 的 Qwen 引擎用它从 `0.1.48` 实机升级到 `0.1.50`（旧引擎留在 `engine\.previous`），DeepSeek 引擎的更新入口以替身包验过 `0.1.49.2 → 0.1.51` 与断点续传，**未对真实安装执行 DeepSeek 引擎升级**。
+v0.1.10 的发布验证记录见对应发布说明：40 个 PowerShell 与 139 个 Python 测试通过；本机 Strata v0.2.6 的 Qwen 引擎由 `0.1.48` 升到 `0.1.50`、DeepSeek 引擎由 `0.1.49.2` 升到 `0.1.51` 并真实启动成功（`/health loaded: true`）；把 DeepSeek 配置故意改回已删除的引擎目录后再打开启动器，路径被自动修正。
