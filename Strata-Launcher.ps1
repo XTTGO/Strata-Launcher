@@ -759,25 +759,28 @@ $calibrationGroup.Controls.Add($calibrationLayout)
 $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new([Windows.Forms.SizeType]::AutoSize)); [void]$layout.Controls.Add($calibrationGroup,0,$row); $layout.SetColumnSpan($calibrationGroup,3); $row++
 
 $officialToolsGroup=[Windows.Forms.GroupBox]::new(); $officialToolsGroup.Tag='surface'; $officialToolsGroup.Text='官方工具'; $officialToolsGroup.Dock='Top'; $officialToolsGroup.AutoSize=$true; $officialToolsGroup.AutoSizeMode='GrowAndShrink'; $officialToolsGroup.Padding=[Windows.Forms.Padding]::new(10,6,10,8); $officialToolsGroup.Margin=[Windows.Forms.Padding]::new(8,6,10,6)
-$officialToolsLayout=[Windows.Forms.TableLayoutPanel]::new(); $officialToolsLayout.Dock='Top'; $officialToolsLayout.AutoSize=$true; $officialToolsLayout.ColumnCount=3; $officialToolsLayout.RowCount=5
-foreach ($column in 1..3) { [void]$officialToolsLayout.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',33.333)) }
+$officialToolsLayout=[Windows.Forms.TableLayoutPanel]::new(); $officialToolsLayout.Dock='Top'; $officialToolsLayout.AutoSize=$true; $officialToolsLayout.ColumnCount=4; $officialToolsLayout.RowCount=5
+foreach ($column in 1..4) { [void]$officialToolsLayout.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',25)) }
 $officialImportInfo=[Windows.Forms.Label]::new(); $officialImportInfo.Tag='muted'; $officialImportInfo.AutoSize=$true; $officialImportInfo.Margin=[Windows.Forms.Padding]::new(4,3,8,7); $officialImportInfo.MaximumSize=[Drawing.Size]::new(690,0); $officialImportInfo.Text='直接调用官方脚本。导入和更新前会先备份官方设置；不会改变下方“保存并启动”的 server.py 启动方式。'
-[void]$officialToolsLayout.Controls.Add($officialImportInfo,0,0); $officialToolsLayout.SetColumnSpan($officialImportInfo,3)
+[void]$officialToolsLayout.Controls.Add($officialImportInfo,0,0); $officialToolsLayout.SetColumnSpan($officialImportInfo,4)
 $officialImport=[Windows.Forms.Button]::new(); $officialImport.Text='导入本地模型'; $officialImport.Dock='Fill'; $officialImport.Height=29; $officialImport.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $officialStart=[Windows.Forms.Button]::new(); $officialStart.Text='官方 START-HERE'; $officialStart.Dock='Fill'; $officialStart.Height=29; $officialStart.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $officialCheck=[Windows.Forms.Button]::new(); $officialCheck.Text='环境检查'; $officialCheck.Dock='Fill'; $officialCheck.Height=29; $officialCheck.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $officialUpdate=[Windows.Forms.Button]::new(); $officialUpdate.Text='官方更新'; $officialUpdate.Dock='Fill'; $officialUpdate.Height=29; $officialUpdate.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $backupSettings=[Windows.Forms.Button]::new(); $backupSettings.Text='立即备份设置'; $backupSettings.Dock='Fill'; $backupSettings.Height=29; $backupSettings.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
 $refreshModels=[Windows.Forms.Button]::new(); $refreshModels.Text='刷新模型列表'; $refreshModels.Dock='Fill'; $refreshModels.Height=29; $refreshModels.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
+$updateEngine=[Windows.Forms.Button]::new(); $updateEngine.Text='更新引擎（Qwen）'; $updateEngine.Dock='Fill'; $updateEngine.Height=29; $updateEngine.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
+$updateDeepSeekEngine=[Windows.Forms.Button]::new(); $updateDeepSeekEngine.Text='更新引擎（DeepSeek）'; $updateDeepSeekEngine.Dock='Fill'; $updateDeepSeekEngine.Height=29; $updateDeepSeekEngine.Margin=[Windows.Forms.Padding]::new(4,2,4,3)
+if (-not $LauncherEnvironment.DeepSeekEngineVersion) { $updateDeepSeekEngine.Enabled=$false; $updateDeepSeekEngine.Text='无 DeepSeek 引擎' }
 $officialMonitor=[Windows.Forms.Button]::new(); $officialMonitor.Text='官方实时监控'; $officialMonitor.Dock='Fill'; $officialMonitor.Height=31; $officialMonitor.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 $monitorOverlay=[Windows.Forms.Button]::new(); $monitorOverlay.Text='悬浮监控'; $monitorOverlay.Dock='Fill'; $monitorOverlay.Height=31; $monitorOverlay.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 $benchmark=[Windows.Forms.Button]::new(); $benchmark.Text='批量 Benchmark 与对比报告'; $benchmark.Dock='Fill'; $benchmark.Height=31; $benchmark.Margin=[Windows.Forms.Padding]::new(4,5,4,3)
 if ($isDeepSeek) { $benchmark.Enabled=$false; $benchmark.Text='批量 Benchmark（DeepSeek 不适用，请用官方调优/规划预测）' }
-[void]$officialToolsLayout.Controls.Add($officialImport,0,1); [void]$officialToolsLayout.Controls.Add($officialStart,1,1); [void]$officialToolsLayout.Controls.Add($officialCheck,2,1)
-[void]$officialToolsLayout.Controls.Add($officialUpdate,0,2); [void]$officialToolsLayout.Controls.Add($backupSettings,1,2); [void]$officialToolsLayout.Controls.Add($refreshModels,2,2)
+[void]$officialToolsLayout.Controls.Add($officialImport,0,1); [void]$officialToolsLayout.Controls.Add($officialStart,1,1); [void]$officialToolsLayout.Controls.Add($officialCheck,2,1); [void]$officialToolsLayout.Controls.Add($backupSettings,3,1)
+[void]$officialToolsLayout.Controls.Add($officialUpdate,0,2); [void]$officialToolsLayout.Controls.Add($updateEngine,1,2); [void]$officialToolsLayout.Controls.Add($updateDeepSeekEngine,2,2); [void]$officialToolsLayout.Controls.Add($refreshModels,3,2)
 [void]$officialToolsLayout.Controls.Add($officialMonitor,0,3); $officialToolsLayout.SetColumnSpan($officialMonitor,2)
-[void]$officialToolsLayout.Controls.Add($monitorOverlay,2,3)
-[void]$officialToolsLayout.Controls.Add($benchmark,0,4); $officialToolsLayout.SetColumnSpan($benchmark,3)
+[void]$officialToolsLayout.Controls.Add($monitorOverlay,2,3); $officialToolsLayout.SetColumnSpan($monitorOverlay,2)
+[void]$officialToolsLayout.Controls.Add($benchmark,0,4); $officialToolsLayout.SetColumnSpan($benchmark,4)
 $officialToolsGroup.Controls.Add($officialToolsLayout)
 $layout.RowCount=[Math]::Max($layout.RowCount,$row+1); [void]$layout.RowStyles.Add([Windows.Forms.RowStyle]::new([Windows.Forms.SizeType]::AutoSize)); [void]$layout.Controls.Add($officialToolsGroup,0,$row); $layout.SetColumnSpan($officialToolsGroup,3); $row++
 $script:Sections[$script:Sections.Count - 1].LastRow = $row - 1
@@ -861,7 +864,7 @@ if ($LauncherEnvironment.EngineWarning) {
 
 $modelSwitch.Tag='button:Secondary'; $calibrate.Tag='button:Secondary'; $benchmark.Tag='button:Accent'
 $lanKeyCopy.Tag='button:Secondary'; $lanFirewallAdd.Tag='button:Secondary'; $lanFirewallRemove.Tag='button:Secondary'
-foreach ($toolButton in @($officialImport,$officialStart,$officialCheck,$officialUpdate,$backupSettings,$refreshModels)) { $toolButton.Tag='button:Secondary' }
+foreach ($toolButton in @($officialImport,$officialStart,$officialCheck,$officialUpdate,$updateEngine,$updateDeepSeekEngine,$backupSettings,$refreshModels)) { $toolButton.Tag='button:Secondary' }
 Set-StrataLauncherTheme -Root $form -Theme $theme
 
 $UiSectionsPath = Join-Path $LauncherData 'ui-sections.json'
@@ -1043,9 +1046,39 @@ $officialUpdate.Add_Click({
         $answer=[Windows.Forms.MessageBox]::Show("更新器会安全地快进 Strata 源码，再运行官方安装更新。`r`n没有上游分支时只跟随最新稳定 Release；不能快进时会停止，不会覆盖本地改动。`r`n模型文件不会重新下载。`r`n`r`n现在继续吗？",'官方更新','OKCancel','Information')
         if ($answer -ne [Windows.Forms.DialogResult]::OK) { return }
         [void](Backup-OfficialSettings -Snapshot)
-        Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '"') -KeepOpen
+        Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '" -StrataRoot "' + $Root + '"') -KeepOpen
         $status.Text='更新窗口已打开；请以窗口末尾的版本校验结果为准。'
     } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'官方更新启动失败','OK','Error') | Out-Null }
+})
+$updateEngine.Add_Click({
+    try {
+        $p=[int]$port.Value
+        if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 上的 Strata 正在运行。请先点击【停止 Strata】，再更新引擎。",'请先停止 Strata','OK','Warning') | Out-Null; return }
+        $update=Join-Path $LauncherDir 'Strata-Launcher-Update.ps1'
+        if (-not (Test-Path -LiteralPath $update)) { throw '找不到启动器更新脚本 Strata-Launcher-Update.ps1。' }
+        $current=[string]$LauncherEnvironment.EngineVersion
+        $answer=[Windows.Forms.MessageBox]::Show("从 Strata 官方签名更新源取这台电脑的最新引擎，替换 engine\（Qwen3.6 / Qwen3.8 / Swift 模型使用；DeepSeek 的 engine-dsv41 用旁边的 DeepSeek 按钮）。`r`n`r`n当前引擎：$current`r`n官方更新只在引擎低于兼容下限时才替换，所以平时不会升到最新；这个按钮直接取最新版，需要联网，下载约数百 MB。`r`n`r`n签名、逐文件哈希与试启动都通过后才会替换；旧引擎保留在 engine\.previous，可用官方 setup.py --rollback-engine 回退。模型文件和官方设置不会改动。`r`n`r`n现在继续吗？",'更新 Qwen 引擎','OKCancel','Information')
+        if ($answer -ne [Windows.Forms.DialogResult]::OK) { return }
+        Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '" -StrataRoot "' + $Root + '" -EngineOnly') -KeepOpen
+        $status.Text='引擎更新窗口已打开；完成后重新打开启动器查看引擎版本。'
+    } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'引擎更新启动失败','OK','Error') | Out-Null }
+})
+$updateDeepSeekEngine.Add_Click({
+    try {
+        $p=[int]$port.Value
+        if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 上的 Strata 正在运行。请先点击【停止 Strata】，再更新 DeepSeek 引擎。",'请先停止 Strata','OK','Warning') | Out-Null; return }
+        if (-not $LauncherEnvironment.DeepSeekEngineVersion) {
+            [Windows.Forms.MessageBox]::Show("这个安装没有 DeepSeek 引擎（engine-dsv41 里没有 strata-dsv41.exe），没有可更新的对象。",'没有 DeepSeek 引擎','OK','Information') | Out-Null
+            return
+        }
+        $update=Join-Path $LauncherDir 'Strata-Launcher-Update.ps1'
+        if (-not (Test-Path -LiteralPath $update)) { throw '找不到启动器更新脚本 Strata-Launcher-Update.ps1。' }
+        $current=[string]$LauncherEnvironment.DeepSeekEngineVersion
+        $answer=[Windows.Forms.MessageBox]::Show("从 Strata 官方签名更新源取 DeepSeek 引擎，替换 engine-dsv41（DeepSeek-V4.1-Flash 专用；官方 UPDATE.bat 与 strata update 都不管它）。`r`n`r`n当前 DeepSeek 引擎：$current`r`n走的是官方安装流程末尾同一个升级函数：签名与逐文件哈希校验、只跑一次 strata-dsv41 --version 试启动，通过后才切到新包，旧的一代随后删除（只保留一代）。需要联网，下载约 400 MB。`r`n`r`n模型文件、模型配置和官方设置不会改动。`r`n`r`n现在继续吗？",'更新 DeepSeek 引擎','OKCancel','Information')
+        if ($answer -ne [Windows.Forms.DialogResult]::OK) { return }
+        Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '" -StrataRoot "' + $Root + '" -DeepSeekEngineOnly') -KeepOpen
+        $status.Text='DeepSeek 引擎更新窗口已打开；完成后重新打开启动器查看引擎版本。'
+    } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'DeepSeek 引擎更新启动失败','OK','Error') | Out-Null }
 })
 $backupSettings.Add_Click({
     try {

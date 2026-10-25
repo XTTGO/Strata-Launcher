@@ -2,9 +2,9 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-最新正式版：**v0.1.8** · 针对 **Strata v0.2.4.2 / 引擎 0.1.48 / DeepSeek 0.1.49.2** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.8)
+最新正式版：**v0.1.9** · 针对 **Strata v0.2.6 / 引擎 0.1.50 / DeepSeek 0.1.49.2** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.9)
 
-v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、`--mmap-experts`、`--vram-experts`、`--dspark-block`），每项都带说明与范围，并提供「自动 / 尽可能快 / 省内存」三个预设——「尽可能快」的专家缓存按本机 min(可用内存 − 12 GB, 物理内存 × 0.6) 现算、保存时重算，不是写死的数字。v0.1.7.5 完成 DeepSeek-V4.1-Flash 的完整接入；v0.1.8 在此之上补齐性能参数。
+v0.1.9 新增两个引擎更新入口：「更新引擎（Qwen）」直接从官方签名更新源取最新引擎（不再受 `MIN_ENGINE` 兼容下限限制，旧引擎留在 `engine\.previous` 可回退），「更新引擎（DeepSeek）」走 DeepSeek 自己的升级函数（签名、逐文件哈希、`--version` 试启动）；下载中断会自动续传。v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、`--mmap-experts`、`--vram-experts`、`--dspark-block`），每项都带说明与范围。
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -37,7 +37,7 @@ v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、
 ## 快速开始
 
 1. 在 Windows 10 或 11 上，通过 Strata 的 `START-HERE.bat` 完成源码安装，并安装至少一个模型。
-2. 从 [v0.1.8 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.8) 下载 `Strata-Launcher-v0.1.8-for-existing-install.zip`。
+2. 从 [v0.1.9 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.9) 下载 `Strata-Launcher-v0.1.9-for-existing-install.zip`。
 3. 解压后，将整个 `launcher` 文件夹放进 Strata 根目录，与 `START-HERE.bat` 并列。
 4. 双击 `launcher\Strata-Launcher.bat`。
 
@@ -59,6 +59,7 @@ v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、
 - **模型列表刷新：**检查配置引用的 GGUF 和专家包；组件缺失时暂时隐藏该模型，保留官方配置，文件恢复后可再次刷新。
 - **引擎版本检查：**官方预编译引擎对照 `setup.py` 的 `MIN_ENGINE` 兼容下限；本地编译引擎还对照源码构建目标。旧引擎显示警告并可继续启动，安装信息缺失时提示先检查更新。
 - **官方更新：**有上游分支时快进更新；没有上游时跟随官方最新稳定 Release。随后运行官方安装更新；若预编译引擎低于兼容下限，再调用官方签名更新源，并核对 `BUILD.json` 与可执行文件版本。分支冲突会安全停止。
+- **更新引擎（Qwen / DeepSeek）：**官方更新只在引擎低于兼容下限时才替换，所以新版本随附的引擎不会自动到已装机器上。两个按钮各自从官方签名更新源取最新引擎：Qwen 用 `engine_from_feed`（Ed25519 签名、逐文件哈希、试启动通过后才替换，旧引擎留在 `engine\.previous`，可 `--rollback-engine` 回退），DeepSeek 用官方安装流程末尾同一个 `upgrade_dsv41_engine`（只跑 `strata-dsv41 --version` 试启动，只保留一代）。传输中断会自动续传；引擎文件被占用时直接报错，不会半途替换。
 - **启动与管理：**保存设置后启动或停止本机 Strata；局域网访问和 NVIDIA 显卡功率设置均为可选操作。
 - **批量 Benchmark：**按预设测试性能、缓存、Agent、长上下文召回和并发等项目；使用报告目录中的配置副本，不修改日常模型 JSON。
 - **本机报告：**在 `launcher\reports` 保存 HTML 报告、原始结果和配置快照。
@@ -68,7 +69,8 @@ v0.1.8 开放 DeepSeek 的专家放置参数（`--ssd-cache`、`--ssd-policy`、
 - [详细安装与功能说明](README.txt)
 - [发布规则（怎么发一个版本）](docs/RELEASE.md)
 - [版本更新记录](CHANGELOG.md)
+- [v0.1.9 发布说明与 SHA-256](releases/v0.1.9/RELEASE_NOTES.md)
 - [v0.1.8 发布说明与 SHA-256](releases/v0.1.8/RELEASE_NOTES.md)
 - [v0.1.7.5 发布说明与 SHA-256](releases/v0.1.7.5/RELEASE_NOTES.md)
 
-v0.1.8 的发布验证记录见对应发布说明：Python 与 37 个 PowerShell 测试通过，实机验收（内存池 48 → 153 GB、空闲读盘 1.2 GB/s → 0、生成 +91%）完成；**长对话与停止未做完整验收。**
+v0.1.9 的发布验证记录见对应发布说明：139 个 Python 测试与 39 个 PowerShell 测试通过；本机 Strata v0.2.6 的 Qwen 引擎用它从 `0.1.48` 实机升级到 `0.1.50`（旧引擎留在 `engine\.previous`），DeepSeek 引擎的更新入口以替身包验过 `0.1.49.2 → 0.1.51` 与断点续传，**未对真实安装执行 DeepSeek 引擎升级**。

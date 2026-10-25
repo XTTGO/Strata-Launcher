@@ -1,6 +1,27 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前版本为 `0.1.8`；针对本机 Strata `v0.2.4.2` 源码安装版校验，Qwen 引擎 `0.1.48`，DeepSeek 引擎 `0.1.49.2`。
+启动器版本独立于 Strata 官方版本。当前版本为 `0.1.9`；针对本机 Strata `v0.2.6` 源码安装版校验，Qwen 引擎 `0.1.50`（官方 0.2.6 随附版本，已用「更新引擎（最新）」从 `0.1.48` 实机升级），DeepSeek 引擎 `0.1.49.2`。
+
+## 0.1.9 — 2026-10-26
+
+- 新增「更新引擎（Qwen）」：补上“官方更新不会把引擎升到最新”的缺口。官方 `UPDATE.bat` / `setup.py --update` 只在预编译引擎低于 `MIN_ENGINE` 时替换引擎，所以 Strata 0.2.6 随附的 Qwen 引擎 `0.1.50` 不会覆盖已装的 `0.1.48`（更新日志里的 `ready-made engine already installed` 是预期行为，不是失败）。
+  - 按钮走官方签名更新源（`setup.engine_from_feed`，与官方 0.2 组件更新同一套校验：Ed25519 签名、逐文件哈希、试启动通过后才替换），不受 `MIN_ENGINE` 门槛限制；确认框写明当前引擎版本，旧引擎保留在 `engine\.previous`，回退用官方 `setup.py --rollback-engine`。
+  - 只更新 `engine\`（Qwen3.6 / Qwen3.8 / Swift 模型使用的 Strata 引擎）；DeepSeek-V4.1-Flash 的 `engine-dsv41` 有旁边的独立按钮，见下面一条。
+- `Strata-Launcher-Update.ps1` 新增 `-EngineOnly`：只更新引擎——不做源码快进、不运行 `UPDATE.bat`、不改模型配置与官方设置。
+  - 本地编译引擎（`engine\BUILD.json` 的 `source=local`）拒绝被预编译包替换，提示用官方 `setup.py --build` 重新编译。
+  - `engine\strata.exe` 正被占用（模型还在跑）时直接报错退出，不会半途替换。
+  - 引擎已是签名源最新版时明确说“没有替换”，不把“无变化”报成失败。
+  - 只有 DeepSeek 的安装点「更新引擎（Qwen）」会直接说明（没有 Qwen 引擎、也没有能试启动它的模型配置），不会先下载几百 MB 再失败。
+- 更新脚本默认根目录改为与启动器相同的识别规则（父目录，或同级 `Strata`）；「官方更新」「更新引擎（Qwen）」「更新引擎（DeepSeek）」三个入口都显式传 `-StrataRoot`，在独立的 `Strata-Launcher` 开发目录里也能用。
+- 「官方工具」布局改为四列：第 1 行「导入本地模型」「官方 START-HERE」「环境检查」「立即备份设置」，第 2 行「官方更新」「更新引擎（Qwen）」「更新引擎（DeepSeek）」「刷新模型列表」。
+- DeepSeek-V4.1-Flash 的引擎是另一条链（`engine-dsv41\`、feed 成员 `dsv41`、`strata_control/dsv41_engine.py`）：官方 `UPDATE.bat` 和 `strata update` 都不管它，官方只在 DeepSeek 安装流程末尾（`setup.install_dsv41` → `setup.upgrade_dsv41_engine`）升它。新增「更新引擎（DeepSeek）」和 `-DeepSeekEngineOnly`，直接调用同一个升级函数：签名与逐文件哈希校验、只跑一次 `strata-dsv41 --version` 试启动，通过后新包与旧包短暂并存再删旧的一代（只保留一代，没有 `--rollback-engine`）。没有 DeepSeek 引擎的安装明确拒绝，不会顺手下载一个。
+- 升级后自动修正模型配置：DeepSeek 的官方升级装到新的版本目录、随后删掉旧目录，但 `strata-*.json` 记的是引擎的绝对 `exe` 路径（还有 `lib_dirs`）——升级完模型就起不来（本机 2026-10-26 实测：引擎已是 0.1.51，配置仍指向 0.1.49.2，启动三次都失败）。更新成功后启动器会把配置里的旧引擎目录改成新目录，只替换这一条路径，文件其余字节不动。
+- 断流自动续传：官方下载器在一次运行内不重试（连接一断就以“装不上”结束，但残片保留）。启动器对两个引擎的更新都做最多 4 次续传（按残片接着下，已实测 CDN 支持 `Range`），并把官方给出的失败原因原样抛出，不再含糊地报“或本次更新未完成”。
+- 官方更新链上的三个坑（本机实测，Strata 0.2.6 + 引擎 0.1.50）：
+  - 签名源默认按 id 挑一个已装模型做试启动，本机会挑到 DeepSeek 的配置，把 `--eos` 等 dsv41 参数交给 Qwen 引擎（`unknown argument: --eos` 后退出），看起来像引擎坏了。启动器现在显式传 `--model-config`，只选启动 `engine\strata.exe` 的配置。
+  - 那次失败会在签名源里留下 24 小时的“试启动失败”标记（不加 `--force` 不再尝试）。启动器只在“试启动失败”时用一次 `--force` 重试；被回滚过（rolled back）的版本不强行覆盖。
+  - 更新必须写进 `setup.home()\engine-feed`（`engine_from_feed` 随后从这里复制到 `engine\`）。用默认的按用户组件目录会出现“下载并试启动成功、但 `engine\` 版本没变”。
+- 验证：139 个 Python 测试与 39 个 PowerShell 测试通过（新增 `tests\Test-Strata-Launcher-EngineOnly.ps1`：预编译引擎走签名源、不碰 `UPDATE.bat`、本地编译引擎被拒）；在临时安装目录上用替身 Python 实测 `0.1.48 → 0.1.50`、`0.1.50 → 0.1.50`（无变化）、“引擎被占用”、“本地编译被拒”，以及 DeepSeek 的 `0.1.49.2 → 0.1.51`、无 DeepSeek 引擎被拒、断流后自动续传（桥被调用 2 次）三条路径；`-ExpandAllSections` 实窗口确认新按钮与四列布局。**实机验收：本机 Strata v0.2.6 的 Qwen 引擎由 `0.1.48` 升级到 `0.1.50`（`engine\.previous` 保留 `0.1.48`）；DeepSeek 引擎由 `0.1.49.2` 升级到 `0.1.51`，升级后用它真实启动模型，`/health` 报 `loaded: true`（`-CheckOnly` 报 `engine_version=0.1.50`、`deepseek_engine_version=0.1.51`）。**
 
 ## 0.1.8 — 2026-10-24
 

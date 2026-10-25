@@ -1,7 +1,7 @@
 Strata 辅助启动器（适用于已经安装好 Strata 的 Windows 用户）
 ===========================================================
 
-启动器版本：0.1.8（独立于 Strata 官方版本；针对 Strata v0.2.4.2 源码安装版完成校验，Qwen 引擎 0.1.48、DeepSeek 引擎 0.1.49.2）。本地模型导入支持 DeepSeek-V4.1-Flash 多文件分片，并按其引擎参数（--reserve-mib、--cpu-threads、--dspark、--ssd-cache、--ssd-policy、--mmap-experts、--vram-experts、--dspark-block 等）保存和启动；官方没写的参数保持不写。更新内容与验证边界见 CHANGELOG.md，发布一个版本的做法见 docs\RELEASE.md（或 Release-Launcher.ps1 一条命令发布）。
+启动器版本：0.1.9（独立于 Strata 官方版本；针对 Strata v0.2.6 源码安装版完成校验，Qwen 引擎已由 0.1.48 实机升级到 0.1.50，DeepSeek 引擎 0.1.49.2）。本地模型导入支持 DeepSeek-V4.1-Flash 多文件分片，并按其引擎参数（--reserve-mib、--cpu-threads、--dspark、--ssd-cache、--ssd-policy、--mmap-experts、--vram-experts、--dspark-block 等）保存和启动；官方没写的参数保持不写。更新内容与验证边界见 CHANGELOG.md，发布一个版本的做法见 docs\RELEASE.md（或 Release-Launcher.ps1 一条命令发布）。
 
 这套启动器独立维护，但运行时依赖已经安装完成的 Strata。它不是模型、引擎或 Python 环境的替代安装包。
 当前只支持通过 START-HERE.bat 从源码安装的 Windows 版 Strata；官方 App 和独立 Terminal 的目录及进程管理方式不同，不能把此包直接放进去使用。
@@ -44,7 +44,7 @@ launcher\Strata-Launcher.bat
 - Strata-Launcher-GpuPower.ps1：可选的 NVIDIA 显卡功率上限与恢复逻辑。
 - Strata-Launcher-GpuPlacement.ps1：读取 CUDA 显卡并校验、写入单模型显卡角色。
 - Strata-Launcher-Lan.ps1、Strata-Launcher-LanFirewall.ps1：可选的局域网密钥和受限防火墙操作。
-- Strata-Launcher-Update.ps1：执行安全的源码快进与官方安装更新；预编译引擎低于官方兼容下限时调用签名更新源，并核对最终版本；-VerifyOnly 只验证现有引擎。
+- Strata-Launcher-Update.ps1：执行安全的源码快进与官方安装更新；预编译引擎低于官方兼容下限时调用签名更新源，并核对最终版本；-EngineOnly 只更新 engine\ 的引擎（Qwen 链路），-DeepSeekEngineOnly 只更新 engine-dsv41\ 的 DeepSeek 引擎，两者都不碰源码与官方 UPDATE.bat；-VerifyOnly 只验证现有引擎。
 - Strata-Calibration-View.ps1：显示当前模型、上下文、视觉状态和完整校准结果。
 - Strata-Launcher-Reload.ps1：切换模型后在当前 PowerShell 进程内重新载入。
 - Strata-Launcher-Settings.ps1：合并采样设置，保留界面未展示的配置字段。
@@ -105,6 +105,18 @@ GPU PLACEMENT 区域列出当前 CUDA 引擎可用的 NVIDIA 显卡。未勾选�
 启动器将本机私有 IPv4 候选地址显示为可点击链接；点哪条就复制哪条到剪贴板，不会打开浏览器，端口变化时链接也会更新。未发现私有 IPv4 时只显示提示文字。远端可打开 http://本机局域网IP:端口/，并在网页 About > Settings 填入 API key；OpenAI 兼容客户端使用 http://本机局域网IP:端口/v1 和同一密钥。HTTP 不加密，仅限可信局域网；不要做路由器公网端口转发。
 
 Windows 防火墙规则不会因勾选或保存而自动修改。点击“Firewall · 放行”并确认管理员授权后，才会创建限于专用网络、本地子网、当前端口和实际 Python 进程映像的入站规则；“撤销放行”只移除该端口由启动器创建的规则。关闭局域网模式或更改端口不会自动删除旧规则，请按需手动撤销。若 Windows 网络配置为“公用网络”，专用网络规则不会生效。实际连通性仍需在另一台设备上验证。
+
+更新引擎（Qwen / DeepSeek）
+--------------------------
+
+官方 UPDATE.bat 只在预编译引擎低于 setup.py 的 MIN_ENGINE 兼容下限时才替换引擎。新的 Strata 版本即使随附了更新的引擎（例如 0.2.6 的 Qwen 引擎 0.1.50），已经装了旧引擎（如 0.1.48）的安装也不会被自动升级——更新日志末尾的“ready-made engine already installed”是预期行为，不是失败。DeepSeek-V4.1-Flash 的引擎更是另一条链：官方 UPDATE.bat 和 strata update 都不碰它，官方只在 DeepSeek 安装流程末尾升级它。
+
+两个引擎各有入口，都在“官方工具”区域：
+
+- “更新引擎（Qwen）”：更新 engine\ 里的 Strata 引擎（Qwen3.6、Qwen3.8、Swift 等模型使用）。通过官方签名更新源取这台电脑对应的引擎包（Ed25519 签名、逐文件哈希，并先用已装模型试启动，通过后才替换），旧引擎保留在 engine\.previous，可用 .venv\Scripts\python.exe setup.py --rollback-engine 回退。本地编译的引擎（engine\BUILD.json 里 source=local）不会被替换，请用官方 setup.py --build 重新编译。
+- “更新引擎（DeepSeek）”：更新 engine-dsv41 里的 strata-dsv41（DeepSeek-V4.1-Flash 专用）。调用的是官方安装流程末尾同一个升级函数：签名与逐文件哈希校验、只跑一次 strata-dsv41 --version 试启动，通过后新包与旧包短暂并存再删掉旧的一代。它只保留一代，不能像 engine\ 那样用 --rollback-engine 回退；没有 DeepSeek 引擎的安装不会触发下载。
+
+两个入口都需要联网（Qwen 约 581 MB，DeepSeek 约 417 MB）。更新前请先停止 Strata：引擎文件被占用时启动器会直接报错，不会半途替换。模型文件、模型配置和官方 settings.json 都不会被改动。
 
 官方实时监控
 ------------
