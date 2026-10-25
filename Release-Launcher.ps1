@@ -59,6 +59,20 @@ $tag = "v$Version"
 function Say([string]$Text) { Write-Host "== $Text" -ForegroundColor Cyan }
 function Ok([string]$Text) { Write-Host "   OK  $Text" -ForegroundColor Green }
 function Die([string]$Text) { throw $Text }
+function Invoke-ReleaseGit([string[]]$GitArguments) {
+    # PowerShell 5.1 turns a native command's stderr into an error record, and with $ErrorActionPreference = 'Stop'
+    # that ends the script: `git tag -d` on a version that was never tagged, and `git push`'s progress lines, both
+    # write there. Run them with Continue and let the exit code decide.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $lines = @(& git -C $root @GitArguments 2>&1)
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    return [pscustomobject]@{ Code = $code; Lines = @($lines | ForEach-Object { [string]$_ }) }
+}
 
 if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { Die "版本号格式不对：$Version（示例 0.1.9 / 0.1.9-dev.1）" }
 if (-not (Test-Path -LiteralPath (Join-Path $root 'Build-Launcher-Package.ps1'))) { Die "不在启动器仓库根目录：$root" }
@@ -148,9 +162,12 @@ if ($pending) {
 } else {
     Ok "没有需要提交的改动（沿用现有提交）"
 }
-git -C $root tag -d $tag 2>$null | Out-Null
-git -C $root tag $tag
-if ($LASTEXITCODE -ne 0) { Die "打标签失败" }
+if (@(Invoke-ReleaseGit @('tag', '--list', $tag)).Lines.Count) {
+    $deleted = Invoke-ReleaseGit @('tag', '-d', $tag)
+    if ($deleted.Code -ne 0) { Die "旧标签 $tag 删除失败" }
+}
+$created = Invoke-ReleaseGit @('tag', $tag)
+if ($created.Code -ne 0) { Die "打标签失败：$($created.Lines -join ' ')" }
 Ok "标签 $tag -> $(git -C $root rev-parse --short HEAD)"
 
 if ($NoPush) { Say "已停在本地（-NoPush）：未推送、未建 Release"; exit 0 }
@@ -173,13 +190,13 @@ $secret = $cred[1]
 $url = "https://$($cred[0]):$secret@github.com/$Repo.git"
 $env:GIT_TERMINAL_PROMPT = '0'
 $mask = { param($t) (("$t") -replace [regex]::Escape($secret), '<redacted>') }
-$pushMain = git -c http.sslBackend=openssl -C $root push $url main 2>&1
-Write-Host (& $mask ($pushMain -join "`n"))
-if ($LASTEXITCODE -ne 0) { Die "推送 main 失败" }
-$pushTag = git -c http.sslBackend=openssl -C $root push $url $tag 2>&1
-Write-Host (& $mask ($pushTag -join "`n"))
-if ($LASTEXITCODE -ne 0) { Die "推送标签失败" }
-git -C $root fetch origin --quiet
+$pushMain = Invoke-ReleaseGit @('-c', 'http.sslBackend=openssl', 'push', $url, 'main')
+Write-Host (& $mask ($pushMain.Lines -join "`n"))
+if ($pushMain.Code -ne 0) { Die "推送 main 失败" }
+$pushTag = Invoke-ReleaseGit @('-c', 'http.sslBackend=openssl', 'push', $url, $tag)
+Write-Host (& $mask ($pushTag.Lines -join "`n"))
+if ($pushTag.Code -ne 0) { Die "推送标签失败" }
+[void](Invoke-ReleaseGit @('fetch', 'origin', '--quiet'))
 Ok "main 与 $tag 已推送"
 
 if ($NoRelease) { Say "已推送（-NoRelease）：Release 与资产需手工创建"; exit 0 }
