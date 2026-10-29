@@ -7,19 +7,19 @@ function Assert-True([bool]$Condition, [string]$Message) {
 $launcherRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $launcherRoot 'Strata-Launcher-Environment.ps1')
 
-$notes = @('v0.2.4.2')
-$hasNotes = { param($tag) $notes -contains $tag }
+$descends = { param($tag) $tag -ne 'v0.2.7.3' }
+$newer = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.7' `
+    -Tags @('v0.2.6.9','v0.2.7','v0.2.7.1','v0.2.7.2','v0.2.7.3','v0.2.8','v0.2.7-rc1') `
+    -IsDescendant $descends
+Assert-True ($null -ne $newer -and $newer.Tag -eq 'v0.2.7.2') 'choose the latest descendant patch of the published release'
 
-$newer = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.4' -Tags @('v0.2.3.1','v0.2.4','v0.2.4.2','v0.2.5','not-a-version') -HasNotes $hasNotes
-Assert-True ($null -ne $newer -and $newer.Tag -eq 'v0.2.4.2') 'the newest tag that carries release notes should win'
+$none = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.7' -Tags @('v0.2.7','v0.2.6.9','v0.2.8') -IsDescendant $descends
+Assert-True ($null -eq $none) 'do not treat a newer release line or an older patch as this release patch'
 
-$none = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.4' -Tags @('v0.2.4','v0.2.3.1') -HasNotes $hasNotes
-Assert-True ($null -eq $none) 'nothing newer means no change'
+$fromPatch = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.7.1' -Tags @('v0.2.7.1','v0.2.7.2') -IsDescendant $descends
+Assert-True ($null -ne $fromPatch -and $fromPatch.Tag -eq 'v0.2.7.2') 'a release already on a patch still accepts its next patch'
 
-$skipNotes = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.4' -Tags @('v0.2.4.2','v0.2.5') -HasNotes $hasNotes
-Assert-True ($null -ne $skipNotes -and $skipNotes.Tag -eq 'v0.2.4.2') 'a newer tag without release notes is skipped'
+$unrelated = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.7' -Tags @('v0.2.7.3') -IsDescendant $descends
+Assert-True ($null -eq $unrelated) 'reject a tag that does not descend from the published release'
 
-$fromPatch = Get-StrataNewestReleaseTag -ReleaseTag 'v0.2.4.2' -Tags @('v0.2.4.2','v0.2.4.1') -HasNotes $hasNotes
-Assert-True ($null -eq $fromPatch) 'a patch release equal to HEAD is not newer'
-
-'PASS: the updater picks the newest official tag that carries release notes'
+'PASS: the updater selects descendant patches only within the latest published release line'

@@ -412,15 +412,17 @@ function Get-StrataModelLabel {
 }
 
 function Get-StrataNewestReleaseTag {
-    param([string]$ReleaseTag, [string[]]$Tags, [scriptblock]$HasNotes)
-    $base = $null
-    if ($ReleaseTag -match '^v(\d+(?:\.\d+)+)$') { $base = [version]$Matches[1] }
+    param([string]$ReleaseTag, [string[]]$Tags, [scriptblock]$IsDescendant)
+    if ($ReleaseTag -notmatch '^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$') { return $null }
+    $series = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+    $base = [version]$ReleaseTag.Substring(1)
+    $patchPattern = '^v' + [regex]::Escape($series) + '\.\d+$'
     $best = $null
     foreach ($tag in @($Tags)) {
-        if ($tag -notmatch '^v(\d+(?:\.\d+)+)$') { continue }
-        $version = [version]$Matches[1]
-        if ($base -and $version -le $base) { continue }
-        if ($HasNotes -and -not (& $HasNotes $tag)) { continue }
+        if ($tag -notmatch $patchPattern) { continue }
+        $version = [version]$tag.Substring(1)
+        if ($version -le $base) { continue }
+        if ($IsDescendant -and -not (& $IsDescendant $tag)) { continue }
         if (-not $best -or $version -gt $best.Version) {
             $best = [pscustomobject]@{ Tag = $tag; Version = $version }
         }

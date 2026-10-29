@@ -43,6 +43,19 @@ try {
     $actual = (& git -C $recipient rev-parse HEAD).Trim()
     if ($actual -ne $expected) { throw 'The recipient branch did not fast-forward to the release.' }
 
+    [IO.File]::WriteAllText((Join-Path $seed 'version.txt'), 'unreleased main')
+    Invoke-TestGit @('-C', $seed, 'commit', '-am', 'unreleased work')
+    Invoke-TestGit @('-C', $seed, 'push', 'origin', 'main')
+    Invoke-TestGit @('-C', $recipient, 'fetch', 'origin', 'main')
+    Invoke-TestGit @('-C', $recipient, 'tag', 'v0.2.3.99', 'origin/main')
+    Invoke-TestGit @('-C', $recipient, 'checkout', 'main')
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $updater -StrataRoot $recipient -SourceOnly -ReleaseTag 'v0.2.3' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Tracked branch release update failed.' }
+    if ((& git -C $recipient rev-parse HEAD).Trim() -ne $expected) {
+        throw 'A tracked branch followed unreleased main instead of the stable release tag.'
+    }
+    Invoke-TestGit @('-C', $recipient, 'checkout', 'codex/no-upstream')
+
     [IO.File]::WriteAllText((Join-Path $recipient 'version.txt'), 'local work')
     Invoke-TestGit @('-C', $recipient, 'config', 'user.name', 'Launcher Test')
     Invoke-TestGit @('-C', $recipient, 'config', 'user.email', 'launcher-test@example.invalid')

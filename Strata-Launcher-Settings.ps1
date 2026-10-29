@@ -19,7 +19,7 @@ function Test-StrataOwnPathConfig {
 
 function Get-StrataQwenOnlyFlags {
     return @('--native','--kv','--kv-resident','--vram-reserve-mib','--pool-workers',
-             '--rope-scaling','--rope-scale','--vision','--prefill','--spec','--spec-min-p',
+             '--rope-scaling','--rope-scale','--prefill','--spec','--spec-min-p',
              '--batch-mtp','--mtp','--expert-cache','--resident-budget-gib','--layer-split',
              '--pcie-frac','--expert-vram','--split-skip-if-fits','--pool-cores',
              '--vram-elastic','--vram-segment-mib','--expert-profile-save','--expert-profile-save-every')
@@ -638,12 +638,150 @@ function Get-StrataDeepSeekSettings {
     }
 }
 
+function Get-StrataDeepSeekVisionStatus {
+    param($Config, [string]$EngineVersion, [string]$Root = '')
+    $status = [pscustomobject]@{ Available = $false; Enabled = $false; PackPath = ''; Reason = '' }
+    try {
+        if ([version]$EngineVersion -lt [version]'0.1.52') {
+            $status.Reason = 'DeepSeek 图像输入需要 0.1.52 或更新的引擎。'
+            return $status
+        }
+    } catch {
+        $status.Reason = '无法确认 DeepSeek 引擎版本。'
+        return $status
+    }
+    $args = [string[]]@(Get-StrataEffectiveArgs -Config $Config)
+    $pack = ''
+    $mode = ''
+    for ($i = 0; $i -lt $args.Count; $i++) {
+        if ($i + 1 -ge $args.Count -or $args[$i + 1].StartsWith('--')) { continue }
+        if ($args[$i] -eq '--pack') { $pack = $args[$i + 1] }
+        if ($args[$i] -eq '--vision') { $mode = $args[$i + 1].ToLowerInvariant() }
+    }
+    if (-not $pack) {
+        $status.Reason = 'DeepSeek 配置没有模型 pack 路径。'
+        return $status
+    }
+    if (-not [IO.Path]::IsPathRooted($pack)) {
+        $base = if ($Config.cwd) { [string]$Config.cwd } elseif ($Root) { $Root } else { (Get-Location).Path }
+        $pack = [IO.Path]::GetFullPath((Join-Path $base $pack))
+    }
+    $status.PackPath = $pack
+    $metadata = Join-Path $pack 'ds4.txt'
+    if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) {
+        $status.Reason = '当前 DeepSeek pack 缺少 ds4.txt；请用官方 setup 检查模型包。'
+        return $status
+    }
+    $content = Get-Content -LiteralPath $metadata -Raw -Encoding UTF8
+    if ($content -notmatch '(?m)^image_token_id\s+\d+\s*$' -or
+            $content -notmatch '(?m)^vision\.num_hidden_layers\s+[1-9]\d*\s*$') {
+        $status.Reason = '当前 DeepSeek pack 没有视觉塔；请用官方 setup 补齐图像权重并重新生成模型包。'
+        return $status
+    }
+    $status.Available = $true
+    $status.Enabled = $mode -notin @('off','no','false','0')
+    return $status
+}
+
+function Get-StrataSpeedSwitchSpec {
+    param([Parameter(Mandatory=$true)][string]$Id)
+    switch ($Id) {
+        'faster_long_prompts' { return [pscustomobject]@{ DefaultOn = $false; Env = [ordered]@{ STRATA_KVA = '1' }; Legacy = $null } }
+        'faster_12gb_nvidia' { return [pscustomobject]@{ DefaultOn = $true; Env = [ordered]@{ STRATA_ROUTE_PRIOR = '0' }; Legacy = $null } }
+        'faster_radeon_9000' { return [pscustomobject]@{ DefaultOn = $true; Env = [ordered]@{ STRATA_PCIE_FRAC_DEFAULT = 'old' }; Legacy = $null } }
+        'deepseek_speedups' {
+            $legacy = [ordered]@{ DS4_FAST_ATTN = '0'; DS4_ATTN_SLAB = '0'; DS4_COPY_PIN = '0'; DS4_COPY_HUGETLB = '0'; DS4_STORE_SPARE = '0'; DS4_STORE_PUT = '0' }
+            $envFlags = [ordered]@{ DS4_DEFAULTS = '026' }
+            foreach ($key in $legacy.Keys) { $envFlags[$key] = $legacy[$key] }
+            return [pscustomobject]@{ DefaultOn = $true; Env = $envFlags; Legacy = $legacy }
+        }
+        default { throw "未知的 Strata 引擎速度开关：$Id" }
+    }
+}
+
+function Get-StrataSpeedSwitchIsOn {
+    param($Config, [Parameter(Mandatory=$true)][string]$Id)
+    $spec = Get-StrataSpeedSwitchSpec -Id $Id
+    $envValues = $Config.env
+    $matches = {
+        param($expected)
+        if ($null -eq $expected) { return $false }
+        foreach ($key in $expected.Keys) {
+            $property = if ($null -ne $envValues) { $envValues.PSObject.Properties[$key] } else { $null }
+            if ($null -eq $property -or [string]$property.Value -cne [string]$expected[$key]) { return $false }
+        }
+        return $true
+    }
+    $set = (& $matches $spec.Env) -or (& $matches $spec.Legacy)
+    return ($set -ne $spec.DefaultOn)
+}
+
+function Set-StrataSpeedSwitch {
+    param($Config, [Parameter(Mandatory=$true)][string]$Id, [Parameter(Mandatory=$true)][bool]$Enabled)
+    $spec = Get-StrataSpeedSwitchSpec -Id $Id
+    $envValues = $Config.env
+    if ($null -eq $envValues) {
+        $envValues = [pscustomobject]@{}
+        $Config | Add-Member -NotePropertyName env -NotePropertyValue $envValues -Force
+    }
+    foreach ($key in $spec.Env.Keys) { [void]$envValues.PSObject.Properties.Remove($key) }
+    if ($Enabled -ne $spec.DefaultOn) {
+        foreach ($key in $spec.Env.Keys) {
+            $envValues | Add-Member -NotePropertyName $key -NotePropertyValue ([string]$spec.Env[$key]) -Force
+        }
+    }
+    if ($envValues.PSObject.Properties.Count -eq 0) { [void]$Config.PSObject.Properties.Remove('env') }
+}
+
+function Get-StrataApplicableSpeedSwitches {
+    param($Config, [string]$Backend, [object[]]$Gpus = @())
+    if (Test-StrataDeepSeekConfig -Config $Config) { return @('deepseek_speedups') }
+    $ids = @()
+    $isFlash = -not [string]$Config.arch
+    if ($isFlash -and $Backend -in @('cuda','hip')) { $ids += 'faster_long_prompts' }
+    if ($isFlash -and $Backend -eq 'cuda') {
+        foreach ($gpu in @($Gpus)) {
+            $name = [string]$gpu.Name
+            $vendor = [string]$gpu.Vendor
+            $memory = [double]$gpu.MemoryMiB
+            if (($vendor -eq 'nvidia' -or (-not $vendor -and $name -match 'NVIDIA|GeForce|\bRTX\b|\bGTX\b|Quadro|Tesla')) -and
+                    $memory -gt 0 -and $memory -le 13 * 1024 -and $gpu.Integrated -ne $true) {
+                $ids += 'faster_12gb_nvidia'
+                break
+            }
+        }
+    }
+    if ($Backend -eq 'hip') {
+        foreach ($gpu in @($Gpus)) {
+            $name = [string]$gpu.Name
+            $arch = [string]$gpu.Arch
+            if ($arch -match '^gfx120[01]$' -or $name -match '(?i)\bRX\s*9\d{3}\b|\b(?:AI\s*PRO\s*)?R97\d{2}\b') {
+                $ids += 'faster_radeon_9000'
+                break
+            }
+        }
+    }
+    return $ids
+}
+
 function Set-StrataDeepSeekArgs {
     param([Collections.ArrayList]$List, $Settings)
     # The dsv41 engine has its own flags and treats an unknown one as a fatal error: drop the Qwen-only
     # flags the launcher writes for its engine before any DeepSeek value is saved.
     foreach ($flag in @(Get-StrataQwenOnlyFlags)) {
         Remove-StrataArgPair -List $List -Flag $flag
+    }
+    for ($i = $List.Count - 1; $i -ge 0; $i--) {
+        if ([string]$List[$i] -ne '--vision') { continue }
+        if ($i + 1 -ge $List.Count -or [string]$List[$i + 1] -notin @('on','off')) {
+            Remove-StrataArgPair -List $List -Flag '--vision'
+        }
+    }
+    $visionMode = (Get-StrataDeepSeekSetting $Settings 'VisionMode').ToLowerInvariant()
+    if ($Settings.VisionSupported -eq $false) {
+        Remove-StrataArgPair -List $List -Flag '--vision'
+    } elseif ($visionMode -in @('on','off')) {
+        Set-StrataArgPair -List $List -Flag '--vision' -Value $visionMode
     }
     Set-StrataArgPair -List $List -Flag '--max-context' -Value ([string]$Settings.Context)
     Set-StrataArgPair -List $List -Flag '--reserve-mib' -Value $Settings.ReserveMib

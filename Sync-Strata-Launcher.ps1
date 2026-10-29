@@ -16,17 +16,19 @@ if (-not (Test-Path -LiteralPath $target -PathType Container)) {
     throw "目标启动器目录不存在：$target"
 }
 
-$builder = Join-Path $source 'Build-Launcher-Package.ps1'
-$package = & $builder -StrataRoot $strata | Select-Object -Last 1
 $temporaryRoot = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('strata-launcher-sync-' + [Guid]::NewGuid().ToString('N'))))
 $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
 if (-not $temporaryRoot.StartsWith($temporaryParent, [StringComparison]::OrdinalIgnoreCase)) {
     throw "临时同步目录不在系统临时目录中：$temporaryRoot"
 }
+$builder = Join-Path $source 'Build-Launcher-Package.ps1'
 $protected = @('data', 'backups', 'reports', 'tests', 'docs', 'dist', '.git', '.gitignore', 'marketing')
 $manifestPath = Join-Path $target '.launcher-sync-manifest.json'
 
 try {
+    # A development sync must not overwrite a published ZIP in dist with unpublished files of the same version.
+    [void](New-Item -ItemType Directory -Path $temporaryRoot -Force)
+    $package = & $builder -StrataRoot $strata -OutputDirectory $temporaryRoot | Select-Object -Last 1
     Expand-Archive -LiteralPath $package -DestinationPath $temporaryRoot
     $expanded = [IO.Path]::GetFullPath((Join-Path $temporaryRoot 'launcher'))
     $expandedPrefix = $expanded.TrimEnd('\') + '\'

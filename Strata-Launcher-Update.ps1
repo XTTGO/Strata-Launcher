@@ -16,7 +16,6 @@ $root = if ($StrataRoot) {
     [IO.Path]::GetFullPath((Resolve-StrataLauncherRoot -LauncherDirectory $PSScriptRoot))
 }
 $startHere = Join-Path $root 'START-HERE.bat'
-$officialUpdate = Join-Path $root 'UPDATE.bat'
 
 function Invoke-GitCommand([string[]]$GitArguments, [switch]$OpenSsl) {
     $previous = $ErrorActionPreference
@@ -36,7 +35,7 @@ function Invoke-GitCommand([string[]]$GitArguments, [switch]$OpenSsl) {
 
 function Invoke-GitWithTlsRetry([string[]]$GitArguments) {
     $first = Invoke-GitCommand -GitArguments $GitArguments
-    if ($first.Code -ne 0 -and $GitArguments.Count -gt 0 -and $GitArguments[0] -in @('fetch','pull') -and
+    if ($first.Code -ne 0 -and $GitArguments.Count -gt 0 -and $GitArguments[0] -in @('fetch','ls-remote') -and
             (($first.Lines -join "`n") -match '(?is)schannel:.*(?:handshake|SSL/TLS connection failed)')) {
         Write-Host 'Git 的 schannel TLS 握手失败；仅对本次 Git 命令改用 OpenSSL 重试（证书验证仍开启）...'
         $retry = Invoke-GitCommand -GitArguments $GitArguments -OpenSsl
@@ -60,8 +59,7 @@ function Get-GitOutput([string[]]$GitArguments) {
 
 function Update-Source {
     if (-not (Test-Path -LiteralPath (Join-Path $root '.git'))) {
-        Write-Host '此 Strata 安装不是 Git 检出，交由官方 UPDATE.bat 检查本机安装。'
-        return $false
+        throw '此 Strata 源码目录不是 Git 检出，无法自动取得稳定版源码。请从官方 Release 下载稳定版源码并迁移安装，再运行更新。'
     }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         throw '这是 Git 安装，但找不到 git.exe；请先安装 Git for Windows。'
@@ -75,15 +73,8 @@ function Update-Source {
     $branch = Get-GitOutput @('symbolic-ref', '-q', '--short', 'HEAD')
     if ($branch.Code -ne 0) { throw '当前处于 detached HEAD；请先选择要更新的 Strata 分支。' }
 
-    $upstream = Get-GitOutput @('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
-    if ($upstream.Code -eq 0 -and @($upstream.Lines).Count -eq 1) {
-        Write-Host "从上游 $($upstream.Lines[0]) 快进更新 Strata 源码 ..."
-        Invoke-GitChecked @('pull', '--ff-only') '更新 Strata 源码'
-        return $true
-    }
-
     if (-not $ReleaseTag) {
-        Write-Host '当前分支没有上游，读取 Strata 官方最新稳定 Release ...'
+        Write-Host '读取 Strata 官方最新稳定 Release ...'
         $request = [Net.WebRequest]::Create('https://github.com/Niko1221/Strata/releases/latest')
         $request.Method = 'HEAD'
         $request.Timeout = 30000
@@ -95,20 +86,23 @@ function Update-Source {
         $ReleaseTag = $Matches[1]
     }
     if ($ReleaseTag -notmatch '^v\d+(?:\.\d+)+$') { throw "无效的稳定 Release 标签：$ReleaseTag" }
-    Write-Host "当前分支 $($branch.Lines[0]) 没有上游；检查最新稳定 Release $ReleaseTag 的快进更新 ..."
+    Write-Host "当前分支 $($branch.Lines[0])；检查稳定 Release $ReleaseTag 的快进更新 ..."
     Invoke-GitChecked @('fetch', '--no-tags', 'origin', 'tag', $ReleaseTag) '获取 Strata 稳定版'
-    # Official patch releases (0.2.4.1, 0.2.4.2, ...) are tags with committed release notes; the GitHub
-    # "latest release" page may still point at the older three-part release, so take the newest tag that
-    # carries docs/release-notes-<version>.md as well.
-    $tagFetch = Get-GitOutput @('fetch', '--tags', '--force', 'origin')
-    if ($tagFetch.Code -eq 0) {
-        $hasNotes = { param($tag) (Get-GitOutput @('cat-file', '-e', ($tag + ':docs/release-notes-' + $tag.Substring(1) + '.md'))).Code -eq 0 }
-        $newer = Get-StrataNewestReleaseTag -ReleaseTag $ReleaseTag -Tags @((Get-GitOutput @('tag', '--list', 'v*')).Lines) -HasNotes $hasNotes
-        if ($newer) {
-            Write-Host "官方标签 $($newer.Tag) 比 Release 页面（$ReleaseTag）新，且带有发布说明；按该标签更新。"
-            $ReleaseTag = $newer.Tag
-            Invoke-GitChecked @('fetch', '--no-tags', 'origin', 'tag', $ReleaseTag) '获取 Strata 稳定版'
-        }
+    # A patch can be announced inside the latest Release without its own release-notes file (v0.2.7.1).
+    # Only consider numeric patch tags in that Release's version line that descend from its tag.
+    $remoteTags = Get-GitOutput @('ls-remote', '--tags', '--refs', 'origin')
+    if ($remoteTags.Code -ne 0) { throw '无法读取 Strata 官方版本标签。' }
+    $tagNames = @($remoteTags.Lines | ForEach-Object {
+        if ($_ -match '^[0-9a-f]{40,64}\s+refs/tags/(v\d+\.\d+\.\d+(?:\.\d+)?)$') { $Matches[1] }
+    })
+    if ($tagNames -notcontains $ReleaseTag) { throw "官方 origin 不包含 Release 标签 $ReleaseTag。" }
+    Invoke-GitChecked @('fetch', '--tags', 'origin') '获取 Strata 补丁标签'
+    $baseTag = $ReleaseTag
+    $descends = { param($tag) (Get-GitOutput @('merge-base', '--is-ancestor', $baseTag, $tag)).Code -eq 0 }
+    $newer = Get-StrataNewestReleaseTag -ReleaseTag $ReleaseTag -Tags $tagNames -IsDescendant $descends
+    if ($newer) {
+        Write-Host "官方补丁标签 $($newer.Tag) 属于 Release $ReleaseTag；按该标签更新。"
+        $ReleaseTag = $newer.Tag
     }
     $ancestor = Get-GitOutput @('merge-base', '--is-ancestor', 'HEAD', $ReleaseTag)
     if ($ancestor.Code -eq 1) {
@@ -216,8 +210,23 @@ function Invoke-SignedFeedEngineUpdate {
         # finds only the old engine there and "updates" engine\ with the version already installed.
         $store = @(& $python -c "import setup; print(setup.home() / 'engine-feed')" 2>$null |
             Where-Object { ([string]$_).Trim() -match 'engine-feed$' })[-1]
-        if (-not $store) { $store = Join-Path $root 'engine-feed' }
+        if (-not $store) { throw '无法确定官方 setup.py 使用的签名引擎暂存目录。' }
         $env:STRATA_COMPONENTS_DIR = ([string]$store).Trim()
+        $checkArguments = [string[]]@($feedArguments) + @('--check')
+        $checkRun = Invoke-FeedUpdateCommand -Python $python -FeedArguments $checkArguments
+        if ($checkRun.Code -ne 0) { throw "无法检查官方签名引擎版本：$($checkRun.Text)" }
+        try { $check = $checkRun.Text | ConvertFrom-Json } catch { throw '官方签名引擎检查没有返回有效 JSON。' }
+        if ($check.ok -ne $true) { throw "官方签名引擎检查失败：$($checkRun.Text)" }
+        $offeredVersion = [string]$check.engine.offered.version
+        if ($offeredVersion -notmatch '^\d+(?:\.\d+)+$') {
+            throw "官方签名源没有为这台电脑提供 Qwen 引擎：$([string]$check.engine.status)"
+        }
+        $installedVersion = Get-InstalledEngineVersion
+        if ($installedVersion -and [version]$installedVersion -ge [version]$offeredVersion) {
+            Write-Host "本机引擎 $installedVersion 已达到签名源提供的 $offeredVersion；不替换 engine，也不改写 .previous。"
+            return
+        }
+        Write-Host "  官方签名源提供 $offeredVersion；本机为 $(if($installedVersion){$installedVersion}else{'未安装'})。"
         $run = Invoke-FeedUpdateCommand -Python $python -FeedArguments $feedArguments
         $transferAttempt = 1
         while ((Test-TransferTruncated $run.Text) -and $transferAttempt -lt 4) {
@@ -240,6 +249,12 @@ function Invoke-SignedFeedEngineUpdate {
             throw "官方签名更新源没有装上新引擎：$why"
         }
         if ($run.Note) { Write-Host "  $($run.Note)" }
+        $staged = Invoke-FeedUpdateCommand -Python $python -FeedArguments ([string[]]@('-c',
+            'import setup; from strata_control import engine_component as ec; print(ec.resolve(setup.home() / "engine-feed", full=True).version)'))
+        $stagedVersion = ([string]$staged.Text).Trim()
+        if ($staged.Code -ne 0 -or $stagedVersion -ne $offeredVersion) {
+            throw "签名暂存引擎版本 $stagedVersion 与官方提供的 $offeredVersion 不一致；未替换本机 engine。"
+        }
         # The update staged the verified engine in the component store; engine_from_feed then copies it into
         # engine\ (its own update call is a no-op now, the store already holds the newest version).
         $bridge = 'import setup; result = setup.engine_from_feed(setup.engine_dir(13), updating=True); raise SystemExit(0 if result is not None else 6)'
@@ -254,6 +269,10 @@ function Invoke-SignedFeedEngineUpdate {
         Pop-Location
     }
     if ($bridgeExit -ne 0) { throw "官方签名引擎更新失败（退出码 $bridgeExit）。" }
+    $afterVersion = Get-InstalledEngineVersion
+    if ($afterVersion -ne $offeredVersion) {
+        throw "更新后本机引擎版本 $afterVersion 与官方提供的 $offeredVersion 不一致。"
+    }
 }
 
 function Invoke-EngineOnly {
@@ -320,12 +339,14 @@ function Invoke-DeepSeekEngineOnly {
     Write-Host '从 Strata 官方签名更新源取 DeepSeek 引擎（签名、逐文件哈希、--version 试启动通过后才切换）...'
     # Single-quoted here-string: the Python below must reach the interpreter unchanged.
     $bridge = @'
-import json, sys
+import argparse, json, sys
 from pathlib import Path
 
 # A script file puts its own folder on sys.path, not the working directory: the Strata root comes in as argv[1].
 sys.path.insert(0, sys.argv[1])
 import setup
+from strata_control import feed as feedmod, signing, updater
+from strata_cli import update_cmd
 
 
 def version_of(exe):
@@ -338,10 +359,16 @@ def version_of(exe):
 eng = setup.ROOT / "engine"
 exe = setup.dsv41_exe(eng)
 old = version_of(exe) if exe else None
-new = setup.upgrade_dsv41_engine(eng, exe) if exe else None
+source = update_cmd._feed_source(argparse.Namespace(feed=None), setup.dsv41_engine_dir(eng).parent)
+signed = feedmod.fetch(source, signing.load_trusted_keys())
+offered, reasons = feedmod.select_engine(list(signed.dsv41), updater.detect_hardware())
+if offered is None:
+    print("DSV41_RESULT " + json.dumps({"before": old, "after": old, "offered": None, "reasons": reasons[:2]}))
+    raise SystemExit(7)
+new = setup.upgrade_dsv41_engine(eng, exe, source) if exe and feedmod.version_key(offered.version) > feedmod.version_key(old) else exe
 now = version_of(new) if new else old
-print("DSV41_RESULT " + json.dumps({"before": old, "after": now}))
-raise SystemExit(0 if now else 6)
+print("DSV41_RESULT " + json.dumps({"before": old, "after": now, "offered": offered.version}))
+raise SystemExit(0 if now and feedmod.version_key(now) >= feedmod.version_key(offered.version) else 7)
 '@
     # A file, not `python -c`: PowerShell 5's native argument passing breaks on the embedded quotes of even a
     # short Python program, and the interpreter reads the file as UTF-8 regardless of the console code page.
@@ -377,8 +404,17 @@ raise SystemExit(0 if now else 6)
     }
     $result = $resultLine.Substring('DSV41_RESULT '.Length) | ConvertFrom-Json
     $after = [string]$result.after
+    $offered = [string]$result.offered
     if (-not $after) { throw '更新后无法读取 DeepSeek 引擎版本。' }
+    if ($offered -notmatch '^\d+(?:\.\d+)+$') {
+        throw '官方签名源没有为这台电脑提供 DeepSeek 引擎；本机版本保持不变。'
+    }
     $refusal = @($output -split "`r?`n" | Where-Object { $_ -match 'could not be installed|could not be checked|could not be fetched|could not resume' })[-1]
+    if ([version]$after -lt [version]$offered) {
+        $why = if ($refusal) { $refusal.Trim() } else { "官方签名源提供 $offered，但本机仍是 $after。" }
+        throw "DeepSeek 引擎未更新到官方提供的 $offered：$why"
+    }
+    if ($bridgeExit -ne 0) { throw "官方签名源没有完成 DeepSeek 引擎检查或更新（退出码 $bridgeExit）。" }
     if ($after -eq $before -and $refusal) {
         throw "DeepSeek 引擎保持 $before：官方签名源没有装上新版本——$($refusal.Trim())"
     }
@@ -427,9 +463,8 @@ function Assert-EngineUpdated {
 }
 
 try {
-    if (-not (Test-Path -LiteralPath $startHere -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $officialUpdate -PathType Leaf)) {
-        throw "找不到官方 START-HERE.bat 或 UPDATE.bat：$root"
+    if (-not (Test-Path -LiteralPath $startHere -PathType Leaf)) {
+        throw "找不到官方 START-HERE.bat：$root"
     }
     if ($VerifyOnly) {
         Assert-EngineUpdated
@@ -443,19 +478,15 @@ try {
         Invoke-DeepSeekEngineOnly
         exit 0
     }
-    $sourceUpdated = Update-Source
+    [void](Update-Source)
     if ($SourceOnly) {
         Write-Host 'Strata 源码快进检查完成；按要求未运行引擎更新。'
         exit 0
     }
     Push-Location -LiteralPath $root
     try {
-        if ($sourceUpdated) {
-            Write-Host '运行官方 START-HERE.bat --update ...'
-            & $startHere '--update'
-        } else {
-            & $officialUpdate
-        }
+        Write-Host '运行官方 START-HERE.bat --update ...'
+        & $startHere '--update'
         $updateExit = $LASTEXITCODE
     } finally {
         Pop-Location

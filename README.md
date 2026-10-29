@@ -2,9 +2,9 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-最新正式版：**v0.1.10** · 针对 **Strata v0.2.6 / 引擎 0.1.50 / DeepSeek 0.1.51** 完成校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.10)
+最新正式版：**v0.1.11** · 针对 **Strata v0.2.7.1** 完成启动器兼容性校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.11)
 
-v0.1.10 修掉引擎升级后的一个启动坑：官方把 DeepSeek 引擎装到新的版本目录并删掉旧目录，而模型配置记的是绝对 `exe` 路径——升级时若启动器窗口已经开着，它的「保存并启动」会把旧路径写回，模型随后启动失败（`FileNotFoundError: [WinError 2]`）。现在启动器**打开时**和**保存前**都会把指向已删除引擎目录的配置改到已安装的那一份（只改 `engine-dsv41` 的路径，能用的配置与 Qwen 引擎不碰）。v0.1.9 的两个引擎更新入口（Qwen 走官方签名源、DeepSeek 走官方升级函数，含断流续传）都在这一版里。
+v0.1.11 对齐官方 0.2.7.1 的 Qwen / DeepSeek 引擎功能：按硬件和模型提供新版速度开关，DeepSeek 图像输入会检查引擎版本与模型包视觉塔；更新器只跟随官方稳定版标签，并在引擎更新时核对签名源与安装版本。本版的功能适配经过测试；本机尚未安装 0.1.52 引擎，也没有完成新版图像或速度实机验收。
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -37,7 +37,7 @@ v0.1.10 修掉引擎升级后的一个启动坑：官方把 DeepSeek 引擎装�
 ## 快速开始
 
 1. 在 Windows 10 或 11 上，通过 Strata 的 `START-HERE.bat` 完成源码安装，并安装至少一个模型。
-2. 从 [v0.1.10 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.10) 下载 `Strata-Launcher-v0.1.10-for-existing-install.zip`。
+2. 从 [v0.1.11 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.11) 下载 `Strata-Launcher-v0.1.11-for-existing-install.zip`。
 3. 解压后，将整个 `launcher` 文件夹放进 Strata 根目录，与 `START-HERE.bat` 并列。
 4. 双击 `launcher\Strata-Launcher.bat`。
 
@@ -58,7 +58,8 @@ v0.1.10 修掉引擎升级后的一个启动坑：官方把 DeepSeek 引擎装�
 - **模型与参数：**切换本机模型，调整生成参数、上下文、显存和视觉选项，并保留配置中未展示的字段。
 - **模型列表刷新：**检查配置引用的 GGUF 和专家包；组件缺失时暂时隐藏该模型，保留官方配置，文件恢复后可再次刷新。
 - **引擎版本检查：**官方预编译引擎对照 `setup.py` 的 `MIN_ENGINE` 兼容下限；本地编译引擎还对照源码构建目标。旧引擎显示警告并可继续启动，安装信息缺失时提示先检查更新。
-- **官方更新：**有上游分支时快进更新；没有上游时跟随官方最新稳定 Release。随后运行官方安装更新；若预编译引擎低于兼容下限，再调用官方签名更新源，并核对 `BUILD.json` 与可执行文件版本。分支冲突会安全停止。
+- **新版引擎选项：**Qwen 长提示加速、部分 NVIDIA / Radeon 显卡回答加速和 DeepSeek 加速按适用条件显示；DeepSeek 图像输入还要求模型包含视觉塔。控件在对应 0.1.52 引擎安装前保持禁用。
+- **官方更新（仓库开发版）：**始终以官方最新稳定 Release 及其同系列补丁标签为源码目标，使用 Git 快进更新；`main` 是否设置 upstream 不影响版本选择。源码目录需保留 Git 检出，非 Git 源码副本会明确提示手动迁移稳定版。随后运行官方安装更新；若预编译引擎低于兼容下限，再调用官方签名更新源，并核对 `BUILD.json` 与可执行文件版本。分支冲突会安全停止。
 - **更新引擎（Qwen / DeepSeek）：**官方更新只在引擎低于兼容下限时才替换，所以新版本随附的引擎不会自动到已装机器上。两个按钮各自从官方签名更新源取最新引擎：Qwen 用 `engine_from_feed`（Ed25519 签名、逐文件哈希、试启动通过后才替换，旧引擎留在 `engine\.previous`，可 `--rollback-engine` 回退），DeepSeek 用官方安装流程末尾同一个 `upgrade_dsv41_engine`（只跑 `strata-dsv41 --version` 试启动，只保留一代）。传输中断会自动续传；引擎文件被占用时直接报错，不会半途替换。
 - **启动与管理：**保存设置后启动或停止本机 Strata；局域网访问和 NVIDIA 显卡功率设置均为可选操作。
 - **批量 Benchmark：**按预设测试性能、缓存、Agent、长上下文召回和并发等项目；使用报告目录中的配置副本，不修改日常模型 JSON。
@@ -69,9 +70,10 @@ v0.1.10 修掉引擎升级后的一个启动坑：官方把 DeepSeek 引擎装�
 - [详细安装与功能说明](README.txt)
 - [发布规则（怎么发一个版本）](docs/RELEASE.md)
 - [版本更新记录](CHANGELOG.md)
+- [v0.1.11 发布说明与 SHA-256](releases/v0.1.11/RELEASE_NOTES.md)
 - [v0.1.10 发布说明与 SHA-256](releases/v0.1.10/RELEASE_NOTES.md)
 - [v0.1.9 发布说明与 SHA-256](releases/v0.1.9/RELEASE_NOTES.md)
 - [v0.1.8 发布说明与 SHA-256](releases/v0.1.8/RELEASE_NOTES.md)
 - [v0.1.7.5 发布说明与 SHA-256](releases/v0.1.7.5/RELEASE_NOTES.md)
 
-v0.1.10 的发布验证记录见对应发布说明：40 个 PowerShell 与 139 个 Python 测试通过；本机 Strata v0.2.6 的 Qwen 引擎由 `0.1.48` 升到 `0.1.50`、DeepSeek 引擎由 `0.1.49.2` 升到 `0.1.51` 并真实启动成功（`/health loaded: true`）；把 DeepSeek 配置故意改回已删除的引擎目录后再打开启动器，路径被自动修正。
+v0.1.11 的发布验证范围见对应发布说明；本机 Strata v0.2.7.1 仍装着 Qwen 0.1.50 和 DeepSeek 0.1.51，新引擎功能尚未实机验收。

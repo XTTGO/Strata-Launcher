@@ -9,21 +9,46 @@ if (-not $probe.StartsWith($temporaryParent.TrimEnd('\') + '\', [StringCompariso
 }
 
 function New-StrataStub([string]$Path, [string]$Marker) {
-    # Records every call, and the text of any argument that names a file: the DeepSeek bridge is passed as a
-    # script file, so its content has to be captured this way.
-    $source = 'using System; using System.IO; public class Program { public static int Main(string[] args) { ' +
-        'File.AppendAllText(@"' + $Marker + '", string.Join(" ", args) + Environment.NewLine); ' +
-        'foreach (var a in args) { try { if (File.Exists(a)) File.AppendAllText(@"' + $Marker + '", File.ReadAllText(a) + Environment.NewLine); } catch { } } ' +
-        'Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.49.2\", \"after\": \"0.1.49.2\"}"); return 0; } }'
+    # The fake feed offers 0.1.51, and the fake bridge copies it into the live engine. Its marker also records
+    # the DeepSeek bridge script file, so the integration assertions inspect the actual command that ran.
+    $source = @'
+using System;
+using System.IO;
+public class Program {
+  public static int Main(string[] args) {
+    var root = Environment.GetEnvironmentVariable("STRATA_LAUNCHER_TEST_ROOT");
+    var marker = Path.Combine(root, "python-called.txt");
+    var all = string.Join(" ", args);
+    File.AppendAllText(marker, all + Environment.NewLine);
+    foreach (var a in args) { try { if (File.Exists(a)) File.AppendAllText(marker, File.ReadAllText(a) + Environment.NewLine); } catch { } }
+    if (all.Contains("ec.resolve")) { Console.WriteLine("0.1.51"); return 0; }
+    if (all.Contains("setup.home()")) { Console.WriteLine(Path.Combine(root, "engine-feed")); return 0; }
+    if (all.Contains("strata.py update") && all.Contains("--check")) {
+      Console.WriteLine("{\"ok\":true,\"engine\":{\"status\":\"available\",\"offered\":{\"version\":\"0.1.51\"}}}"); return 0;
+    }
+    if (all.Contains("strata.py update")) {
+      Console.WriteLine("{\"ok\":true,\"results\":[{\"component\":\"engine\",\"status\":\"updated\"}]}"); return 0;
+    }
+    if (all.Contains("engine_from_feed")) {
+      File.WriteAllText(Path.Combine(root, "engine", "BUILD.json"), "{\"version\":\"0.1.51\",\"source\":\"prebuilt\"}");
+      Console.WriteLine("ready-made engine 0.1.51"); return 0;
+    }
+    Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.49.2\", \"after\": \"0.1.49.2\", \"offered\": \"0.1.49.2\"}"); return 0;
+  }
+}
+'@
     Add-Type -TypeDefinition $source -OutputType ConsoleApplication -OutputAssembly $Path
 }
 
 function Invoke-Updater([string[]]$Arguments) {
-    & $powershell -NoProfile -ExecutionPolicy Bypass -File $updater -StrataRoot $probe @Arguments | Out-Null
+    $lines = & $powershell -NoProfile -ExecutionPolicy Bypass -File $updater -StrataRoot $probe @Arguments
+    if ($LASTEXITCODE -ne 0) { $lines | Out-Host }
     return $LASTEXITCODE
 }
 
 try {
+    $previousTestRoot = $env:STRATA_LAUNCHER_TEST_ROOT
+    $env:STRATA_LAUNCHER_TEST_ROOT = $probe
     [void](New-Item -ItemType Directory -Path (Join-Path $probe 'engine') -Force)
     [void](New-Item -ItemType Directory -Path (Join-Path $probe 'python') -Force)
     [IO.File]::WriteAllText((Join-Path $probe 'START-HERE.bat'), '@echo off')
@@ -33,7 +58,22 @@ try {
     [IO.File]::WriteAllText((Join-Path $probe 'CMakeLists.txt'), 'project(strata VERSION 0.1.51 LANGUAGES CXX)')
     [IO.File]::WriteAllText((Join-Path $probe 'strata.py'), '# placeholder for the signed-feed command')
     [IO.File]::WriteAllText((Join-Path $probe 'engine\BUILD.json'), '{"version":"0.1.48","source":"prebuilt"}')
-    Add-Type -TypeDefinition 'using System; public class Program { public static int Main(string[] args) { Console.WriteLine("strata 0.1.48"); return 0; } }' -OutputType ConsoleApplication -OutputAssembly (Join-Path $probe 'engine\strata.exe')
+    $engineSource = @'
+using System;
+using System.IO;
+public class Program {
+  public static int Main(string[] args) {
+    var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BUILD.json");
+    var data = File.ReadAllText(path);
+    var key = data.IndexOf("\"version\"");
+    var first = data.IndexOf('"', data.IndexOf(':', key) + 1);
+    var last = data.IndexOf('"', first + 1);
+    Console.WriteLine("strata " + data.Substring(first + 1, last - first - 1));
+    return 0;
+  }
+}
+'@
+    Add-Type -TypeDefinition $engineSource -OutputType ConsoleApplication -OutputAssembly (Join-Path $probe 'engine\strata.exe')
 
     $feedMarker = Join-Path $probe 'python-called.txt'
     $updateMarker = Join-Path $probe 'update-called.txt'
@@ -46,6 +86,12 @@ try {
     if ($calls -notmatch 'update --no-control') { throw 'Engine-only update did not run the signed-feed update command.' }
     if ($calls -notmatch 'engine_from_feed') { throw 'The signed update feed bridge was not the command that ran.' }
     if (Test-Path -LiteralPath $updateMarker) { throw 'Engine-only update ran the official UPDATE.bat.' }
+    $bridgeCalls = ([regex]::Matches($calls, 'engine_from_feed')).Count
+    if ((Invoke-Updater @('-EngineOnly')) -ne 0) { throw 'A second Qwen engine check failed.' }
+    $afterSecond = Get-Content -LiteralPath $feedMarker -Raw
+    if (([regex]::Matches($afterSecond, 'engine_from_feed')).Count -ne $bridgeCalls) {
+        throw 'Checking an already current Qwen engine recopied it and would overwrite engine/.previous.'
+    }
 
     # 2. a locally compiled engine is never replaced by a prebuilt package
     [IO.File]::WriteAllText((Join-Path $probe 'engine\BUILD.json'), '{"version":"0.1.48","source":"local"}')
@@ -67,6 +113,12 @@ try {
     if ($calls -notmatch 'upgrade_dsv41_engine') { throw 'DeepSeek engine-only update did not call setup.upgrade_dsv41_engine.' }
     if (Test-Path -LiteralPath $updateMarker) { throw 'DeepSeek engine-only update ran the official UPDATE.bat.' }
 
+    $offlineStub = 'using System; public class Program { public static int Main(string[] args) { Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.49.2\", \"after\": \"0.1.49.2\", \"offered\": \"0.1.51\"}"); return 0; } }'
+    Add-Type -TypeDefinition $offlineStub -OutputType ConsoleApplication -OutputAssembly (Join-Path $probe 'python\python.exe')
+    if ((Invoke-Updater @('-DeepSeekEngineOnly')) -eq 0) {
+        throw 'A failed DeepSeek upgrade was reported as current despite the signed feed offering a newer version.'
+    }
+
     # 4. an install without the DeepSeek engine refuses instead of downloading one
     Remove-Item -LiteralPath $dsDir -Recurse -Force
     if ((Invoke-Updater @('-DeepSeekEngineOnly')) -eq 0) { throw 'DeepSeek engine-only update accepted an install without a DeepSeek engine.' }
@@ -80,7 +132,7 @@ try {
         'int n = 0; if (File.Exists(@"' + $countPath + '")) int.TryParse(File.ReadAllText(@"' + $countPath + '"), out n); ' +
         'File.WriteAllText(@"' + $countPath + '", (n + 1).ToString()); ' +
         'if (n == 0) Console.WriteLine("A newer DeepSeek engine is available but could not be installed: delivered 126138234 of 417419650 bytes; the partial file is kept and the next try resumes it; still using 0.1.49.2."); ' +
-        'Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.49.2\", \"after\": \"0.1.49.2\"}"); return 0; } }'
+        'Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.49.2\", \"after\": \"0.1.49.2\", \"offered\": \"0.1.49.2\"}"); return 0; } }'
     Add-Type -TypeDefinition $truncating -OutputType ConsoleApplication -OutputAssembly (Join-Path $probe 'python\python.exe')
     if ((Invoke-Updater @('-DeepSeekEngineOnly')) -ne 0) { throw 'A retried transfer ended the DeepSeek engine update with an error.' }
     $bridgeCalls = if (Test-Path -LiteralPath $countPath) { [int](Get-Content -LiteralPath $countPath -Raw) } else { 0 }
@@ -99,7 +151,7 @@ try {
     [IO.File]::WriteAllText($dsConfig, $configText)
     # the official upgrade deleted the old package folder: the config now names a file that does not exist
     Remove-Item -LiteralPath $dsDir -Recurse -Force
-    $resultStub = 'using System; public class Program { public static int Main(string[] args) { Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.51\", \"after\": \"0.1.51\"}"); return 0; } }'
+    $resultStub = 'using System; public class Program { public static int Main(string[] args) { Console.WriteLine("DSV41_RESULT {\"before\": \"0.1.51\", \"after\": \"0.1.51\", \"offered\": \"0.1.51\"}"); return 0; } }'
     Add-Type -TypeDefinition $resultStub -OutputType ConsoleApplication -OutputAssembly (Join-Path $probe 'python\python.exe')
     if ((Invoke-Updater @('-DeepSeekEngineOnly')) -ne 0) { throw 'The DeepSeek engine update failed while re-pointing a run config.' }
     $after = Get-Content -LiteralPath $dsConfig -Raw
@@ -117,5 +169,7 @@ try {
 
     'PASS: engine-only updates use the signed feed, resume a dropped transfer, re-point run configs after a DeepSeek upgrade, refuse a DeepSeek-only install, and leave UPDATE.bat and local builds alone'
 } finally {
+    if ($null -eq $previousTestRoot) { Remove-Item Env:STRATA_LAUNCHER_TEST_ROOT -ErrorAction SilentlyContinue }
+    else { $env:STRATA_LAUNCHER_TEST_ROOT = $previousTestRoot }
     if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Recurse -Force }
 }

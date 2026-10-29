@@ -435,9 +435,9 @@ function Context-Item([long]$Value) {
 }
 function Context-Summary([long]$Value) {
     if ($isDeepSeek) {
-        if ($Value -le 65536) { return "$(($Value / 1024))K 上下文（官方验证 8K，其余未验证）" }
+        if ($Value -le 65536) { return "$(($Value / 1024))K 上下文（官方默认 8K；本机长上下文未验收）" }
         $scale=([double]$Value / 65536.0).ToString('0.###',[Globalization.CultureInfo]::InvariantCulture)
-        return "$(($Value / 1024))K 上下文，YaRN ${scale}x（未验证）"
+        return "$(($Value / 1024))K 上下文，YaRN ${scale}x（本机未验收）"
     }
     if ($Value -le 262144) { return "$(($Value / 1024))K 原生上下文" }
     $scale=([double]$Value / 262144.0).ToString('0.###',[Globalization.CultureInfo]::InvariantCulture)
@@ -577,7 +577,7 @@ Add-Section 'runtime' 'RUNTIME & MEMORY' '上下文、显存与服务运行参�
 $initialContext=Get-StrataInitialContext -Config $cfg
 $initialContextItem=Context-Item $initialContext
 if ($script:ContextItems -notcontains $initialContextItem) { $script:ContextItems += $initialContextItem }
-$ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方默认 8192；模型原生 64K，元数据支持 YaRN ×16 到 1M；官方只验证到 8192，更大更占显存/内存'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
+$ctx = Make-Combo $script:ContextItems $initialContextItem; Add-Row $layout $row '上下文长度' $ctx $(if($isDeepSeek){'官方默认 8192；模型原生 64K，元数据支持 YaRN ×16 到 1M；超过 256K 的长提示仍缺充分验证，且会增加内存占用'}elseif($isOwnPath){'Qwen3.6 原生上限 256K，不使用 YaRN'}else{'超过 256K 自动使用 YaRN；更长会降低速度并增加内存占用'})
 if ($isDeepSeek) {
     $dsPresetItems = @('自动（官方默认）','热专家优先（LFU）','省内存（关闭 RAM 缓存）','自定义')
     $dsPreset = Make-Combo $dsPresetItems '自动（官方默认）'; Add-Row $layout $row '专家缓存预设' $dsPreset '官方默认交给 DeepSeek 引擎自动选择容量；LFU 只改变淘汰策略，不固定缓存大小。'
@@ -687,6 +687,50 @@ if ($isDeepSeek) {
     }
     $gpuPlacementEdit.Add_CheckedChanged({foreach($selector in $gpuPlacementSelectors.Values){$selector.Enabled=($gpuPlacementEdit.Checked -and [bool]$selector.Tag)}})
 }
+Add-Section 'engine_speed' 'ENGINE SPEED · 0.2.7' '使用官方新版引擎的速度开关；默认状态交给引擎选择，只在更改开关时写入对应环境变量。'
+$speedBackend = ''
+if ($gpuPlacementBuild) {
+    if ($gpuPlacementBuild.cuda) { $speedBackend = 'cuda' }
+    elseif ($gpuPlacementBuild.hip) { $speedBackend = 'hip' }
+    elseif ($gpuPlacementBuild.backend) { $speedBackend = [string]$gpuPlacementBuild.backend }
+}
+if (-not $speedBackend -and $cfg.backend) { $speedBackend = [string]$cfg.backend }
+$speedGpus = @($gpuPlacementCards)
+if ($speedBackend -eq 'hip') {
+    try {
+        $speedGpus += @(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object { $_.Name -match 'Radeon|AMD' } |
+            ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; Vendor = 'amd'; Arch = '' } })
+    } catch { }
+}
+$speedSwitchIds = @(Get-StrataApplicableSpeedSwitches -Config $cfg -Backend $speedBackend -Gpus $speedGpus)
+$speedSwitchControls = @{}
+$speedSwitchInitial = @{}
+$speedEngineVersion = if ($isDeepSeek) { [string]$script:DsConfiguredEngineVersion } else { [string]$LauncherEnvironment.EngineVersion }
+$speedEngineSupported = $false
+try { $speedEngineSupported = [version]$speedEngineVersion -ge [version]'0.1.52' } catch { }
+$speedLabels = @{
+    faster_long_prompts = '长提示加速（实验）'
+    faster_12gb_nvidia = '12 GB NVIDIA 回答加速'
+    faster_radeon_9000 = 'Radeon RX 9000 回答加速'
+    deepseek_speedups = 'DeepSeek 新版加速'
+}
+$speedHints = @{
+    faster_long_prompts = '默认关闭；近似读取长提示可能遗漏细节。开启写 STRATA_KVA=1。'
+    faster_12gb_nvidia = '适用于 13 GiB 及以下独立 NVIDIA 显卡；默认开启，关闭写 STRATA_ROUTE_PRIOR=0。'
+    faster_radeon_9000 = '适用于 Radeon RX 9000 / AI PRO R9700；默认开启，关闭恢复旧版分工。'
+    deepseek_speedups = '默认开启；若新版读提示或回答异常，可关闭以恢复 0.2.6 的引擎行为。'
+}
+foreach ($speedId in $speedSwitchIds) {
+    $control = [Windows.Forms.CheckBox]::new()
+    $control.Text = [string]$speedLabels[$speedId]
+    $control.Checked = [bool](Get-StrataSpeedSwitchIsOn -Config $cfg -Id $speedId)
+    $control.Enabled = $speedEngineSupported
+    $speedSwitchControls[$speedId] = $control
+    $speedSwitchInitial[$speedId] = [bool]$control.Checked
+    $hint = [string]$speedHints[$speedId]
+    if (-not $speedEngineSupported) { $hint += " 当前引擎 $speedEngineVersion 尚未支持；先用对应的更新引擎按钮升级。" }
+    Add-Row $layout $row '速度选项' $control $hint
+}
 Add-Section 'network' 'NETWORK & ACCESS' '端口、局域网与启动选项'
 $port = Make-Num ([string]$cfg.port) 1024 65535 1; Add-Row $layout $row '服务端口' $port '默认 8080；监听范围由下方局域网开关决定'
 $lanAccess = [Windows.Forms.CheckBox]::new(); $lanAccess.Text='LAN access：允许局域网设备访问'; $lanAccess.Checked=(Get-StrataLanMode $LanModePath)
@@ -729,8 +773,18 @@ $updateLanAddress = {
 & $updateLanAddress
 $port.Add_ValueChanged($updateLanAddress)
 $lanAccess.Add_CheckedChanged({ $lanKeyCopy.Enabled=$lanAccess.Checked; $lanFirewallAdd.Enabled=$lanAccess.Checked })
-$vision = [Windows.Forms.CheckBox]::new(); $vision.Text='启用图像输入'; $vision.Checked=($null -ne $cfg.vision); Add-Row $layout $row '视觉' $vision '首次启用时查找已安装的视觉组件；关闭时保留视觉配置供以后恢复'
-if ($isOwnPath -or $isDeepSeek) { $vision.Enabled=$false; $vision.Checked=$false }
+$deepSeekVisionStatus = if ($isDeepSeek) { Get-StrataDeepSeekVisionStatus -Config $cfg -EngineVersion ([string]$script:DsConfiguredEngineVersion) -Root $Root } else { $null }
+$vision = [Windows.Forms.CheckBox]::new(); $vision.Text='启用图像输入'
+if ($isDeepSeek) {
+    $vision.Checked = [bool]$deepSeekVisionStatus.Enabled
+    $vision.Enabled = [bool]$deepSeekVisionStatus.Available
+    $visionHint = if ($deepSeekVisionStatus.Available) { 'DeepSeek 使用引擎内置视觉塔；保存为 --vision on/off，不使用 Qwen 的独立视觉程序。' } else { [string]$deepSeekVisionStatus.Reason }
+} else {
+    $vision.Checked = ($null -ne $cfg.vision)
+    $vision.Enabled = -not $isOwnPath
+    $visionHint = '首次启用时查找已安装的视觉组件；关闭时保留视觉配置供以后恢复'
+}
+Add-Row $layout $row '视觉' $vision $visionHint
 $sharedDefaults = [Windows.Forms.CheckBox]::new(); $sharedDefaults.Text='保存为外部 API 客户端默认值'; $sharedDefaults.Checked=$true; Add-Row $layout $row 'API 默认参数' $sharedDefaults '请求未显式传参时生效；Agent 自己传的参数优先'
 $openBrowser = [Windows.Forms.CheckBox]::new(); $openBrowser.Text='服务就绪后打开本机网页'; $openBrowser.Checked=$true; Add-Row $layout $row '启动后' $openBrowser ''
 
@@ -1051,7 +1105,7 @@ $officialUpdate.Add_Click({
         if (Port-Busy $p) { [Windows.Forms.MessageBox]::Show("端口 $p 上的 Strata 正在运行。请先停止服务，再执行官方更新。",'请先停止 Strata','OK','Warning') | Out-Null; return }
         $update=Join-Path $LauncherDir 'Strata-Launcher-Update.ps1'
         if (-not (Test-Path -LiteralPath $update)) { throw '找不到启动器更新脚本 Strata-Launcher-Update.ps1。' }
-        $answer=[Windows.Forms.MessageBox]::Show("更新器会安全地快进 Strata 源码，再运行官方安装更新。`r`n没有上游分支时只跟随最新稳定 Release；不能快进时会停止，不会覆盖本地改动。`r`n模型文件不会重新下载。`r`n`r`n现在继续吗？",'官方更新','OKCancel','Information')
+        $answer=[Windows.Forms.MessageBox]::Show("更新器会从官方最新稳定 Release 及同系列补丁标签快进 Strata 源码，再运行官方安装更新。`r`n源码目录需保留 Git 检出；是否设置 upstream 不影响版本选择。不能快进时会停止，不会覆盖本地改动。`r`n模型文件不会重新下载。`r`n`r`n现在继续吗？",'官方更新','OKCancel','Information')
         if ($answer -ne [Windows.Forms.DialogResult]::OK) { return }
         [void](Backup-OfficialSettings -Snapshot)
         Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '" -StrataRoot "' + $Root + '"') -KeepOpen
@@ -1082,7 +1136,7 @@ $updateDeepSeekEngine.Add_Click({
         $update=Join-Path $LauncherDir 'Strata-Launcher-Update.ps1'
         if (-not (Test-Path -LiteralPath $update)) { throw '找不到启动器更新脚本 Strata-Launcher-Update.ps1。' }
         $current=[string]$LauncherEnvironment.DeepSeekEngineVersion
-        $answer=[Windows.Forms.MessageBox]::Show("从 Strata 官方签名更新源取 DeepSeek 引擎，替换 engine-dsv41（DeepSeek-V4.1-Flash 专用；官方 UPDATE.bat 与 strata update 都不管它）。`r`n`r`n当前 DeepSeek 引擎：$current`r`n走的是官方安装流程末尾同一个升级函数：签名与逐文件哈希校验、只跑一次 strata-dsv41 --version 试启动，通过后才切到新包，旧的一代随后删除（只保留一代）。需要联网，下载约 400 MB。`r`n`r`n模型文件、模型配置和官方设置不会改动。`r`n`r`n现在继续吗？",'更新 DeepSeek 引擎','OKCancel','Information')
+        $answer=[Windows.Forms.MessageBox]::Show("从 Strata 官方签名更新源取 DeepSeek 引擎，替换 engine-dsv41（DeepSeek-V4.1-Flash 专用；官方 UPDATE.bat 与 strata update 都不管它）。`r`n`r`n当前 DeepSeek 引擎：$current`r`n走的是官方安装流程末尾同一个升级函数：签名与逐文件哈希校验、只跑一次 strata-dsv41 --version 试启动，通过后才切到新包，旧的一代随后删除（只保留一代）。需要联网，下载约 400 MB。`r`n`r`n模型文件和官方设置不会改动；若旧引擎路径失效，会修正模型配置中的 exe/lib_dirs 路径。`r`n`r`n现在继续吗？",'更新 DeepSeek 引擎','OKCancel','Information')
         if ($answer -ne [Windows.Forms.DialogResult]::OK) { return }
         Start-CmdCommand ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $update + '" -StrataRoot "' + $Root + '" -DeepSeekEngineOnly') -KeepOpen
         $status.Text='DeepSeek 引擎更新窗口已打开；完成后重新打开启动器查看引擎版本。'
@@ -1168,6 +1222,8 @@ function Save-Settings {
             Tp           = $(if ($dsTp.SelectedIndex -le 0) { '' } else { ([string]$dsTp.SelectedItem).Trim() })
             Experts      = $(if ($dsSpeed.SelectedIndex -eq 1) { '5' } elseif ($dsSpeed.SelectedIndex -eq 2) { '6' } else { '' })
             ExpertsSupported = [bool]$script:DsExpertsSupported
+            VisionMode = $(if ($deepSeekVisionStatus.Available) { if ($vision.Checked) { 'on' } else { 'off' } } else { '' })
+            VisionSupported = [bool]$deepSeekVisionStatus.Available
         }
         $confValue=[double]0
         if ($deepSeekSave.DsparkConf -and (-not [double]::TryParse($deepSeekSave.DsparkConf,[ref]$confValue) -or $confValue -lt 0 -or $confValue -gt 1)) {
@@ -1217,6 +1273,12 @@ function Save-Settings {
     Set-Arg $a '--pool-workers' $(if ($poolValue -gt 0) { [string]$poolValue } else { $null })
     }
     $new.args = @($a); $new.port = [int]$port.Value
+    foreach ($speedId in $speedSwitchIds) {
+        $control = $speedSwitchControls[$speedId]
+        if ($control.Enabled -and [bool]$control.Checked -ne [bool]$speedSwitchInitial[$speedId]) {
+            Set-StrataSpeedSwitch -Config $new -Id $speedId -Enabled ([bool]$control.Checked)
+        }
+    }
     Sync-StrataUserArgsForSave -Config $new -OriginalArgs $initialEngineArgs
     if (-not $isDeepSeek) {
         if($gpuPlacementEdit.Checked){

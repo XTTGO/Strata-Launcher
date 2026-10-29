@@ -1,7 +1,7 @@
 Strata 辅助启动器（适用于已经安装好 Strata 的 Windows 用户）
 ===========================================================
 
-启动器版本：0.1.10（独立于 Strata 官方版本；针对 Strata v0.2.6 源码安装版完成校验，Qwen 引擎已由 0.1.48 实机升级到 0.1.50，DeepSeek 引擎 0.1.49.2）。本地模型导入支持 DeepSeek-V4.1-Flash 多文件分片，并按其引擎参数（--reserve-mib、--cpu-threads、--dspark、--ssd-cache、--ssd-policy、--mmap-experts、--vram-experts、--dspark-block 等）保存和启动；官方没写的参数保持不写。更新内容与验证边界见 CHANGELOG.md，发布一个版本的做法见 docs\RELEASE.md（或 Release-Launcher.ps1 一条命令发布）。
+启动器版本：0.1.11（独立于 Strata 官方版本；针对 Strata v0.2.7.1 源码安装版完成兼容性检查）。Qwen 和 DeepSeek 的新版速度开关需官方 0.1.52 引擎，DeepSeek 图像输入还需带视觉塔的模型包；旧引擎上控件保持禁用。本机发布时仍安装 Qwen 0.1.50、DeepSeek 0.1.51，尚未实测新版图像和速度收益。更新内容与验证边界见 CHANGELOG.md，发布流程见 docs\RELEASE.md。
 
 这套启动器独立维护，但运行时依赖已经安装完成的 Strata。它不是模型、引擎或 Python 环境的替代安装包。
 当前只支持通过 START-HERE.bat 从源码安装的 Windows 版 Strata；官方 App 和独立 Terminal 的目录及进程管理方式不同，不能把此包直接放进去使用。

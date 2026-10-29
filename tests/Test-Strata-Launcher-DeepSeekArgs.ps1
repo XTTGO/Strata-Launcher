@@ -39,9 +39,10 @@ $saved = Set-StrataDeepSeekArgs -List $list -Settings ([pscustomobject]@{
     Context = 16384; ReserveMib = 2048; CpuThreads = 12; Dspark = 'on'; DsparkConf = '0.7'; SsdCache = 'auto'; PrefillChunk = '1024'; Tp = '1'
 })
 $out = [string[]]@($saved)
-foreach ($flag in @('--kv','--vram-reserve-mib','--pool-workers','--kv-resident','--rope-scaling','--rope-scale','--vision')) {
+foreach ($flag in @('--kv','--vram-reserve-mib','--pool-workers','--kv-resident','--rope-scaling','--rope-scale')) {
     Assert-True (-not (@($out) -contains $flag)) "the Qwen-only $flag should be removed"
 }
+Assert-True (-not (@($out) -contains '--vision')) 'a legacy bare Qwen vision flag must not reach DeepSeek'
 $pairs = Get-Pairs $out
 Assert-True ($pairs['--max-context'] -eq '16384') 'the context should be saved'
 Assert-True ($pairs['--reserve-mib'] -eq '2048') 'the reserve should be saved as --reserve-mib'
@@ -53,6 +54,19 @@ Assert-True ($pairs['--prefill-chunk'] -eq '1024') 'the prefill chunk should be 
 Assert-True ($pairs['--pack'] -eq 'F:\AI\Strata-data\packs\deepseek-v4.1-flash-ist-das-2.00bpw') 'the official pack must be preserved'
 Assert-True ($pairs['--eos'] -eq '1') 'the official EOS setting must be preserved'
 Assert-True (@($out | Where-Object { $_ -eq '--dspark' }).Count -eq 1) 'DSpark must be written once'
+
+$visionOff = Set-StrataDeepSeekArgs -List ([Collections.ArrayList]::new([string[]]@('--pack','P','--vision','on'))) -Settings ([pscustomobject]@{
+    Context = 8192; Dspark = 'auto'; VisionMode = 'off'; VisionSupported = $true
+})
+Assert-True ((Get-Pairs ([string[]]@($visionOff)))['--vision'] -eq 'off') 'DeepSeek vision off must be an argument with a value'
+$visionKeep = Set-StrataDeepSeekArgs -List ([Collections.ArrayList]::new([string[]]@('--pack','P','--vision','off'))) -Settings ([pscustomobject]@{
+    Context = 8192; Dspark = 'auto'; VisionSupported = $true
+})
+Assert-True ((Get-Pairs ([string[]]@($visionKeep)))['--vision'] -eq 'off') 'saving unrelated DeepSeek settings must preserve an explicit vision choice'
+$visionOld = Set-StrataDeepSeekArgs -List ([Collections.ArrayList]::new([string[]]@('--pack','P','--vision','on'))) -Settings ([pscustomobject]@{
+    Context = 8192; Dspark = 'auto'; VisionSupported = $false
+})
+Assert-True (-not (@([string[]]@($visionOld)) -contains '--vision')) 'an engine without DeepSeek vision support must not receive the new flag'
 
 $none = Set-StrataDeepSeekArgs -List ([Collections.ArrayList]::new([string[]]@('--pack','P','--dspark','off'))) -Settings ([pscustomobject]@{
     Context = 8192; ReserveMib = ''; CpuThreads = ''; Dspark = 'none'; DsparkConf = ''; SsdCache = ''; PrefillChunk = ''; Tp = ''

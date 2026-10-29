@@ -1,4 +1,4 @@
-# DeepSeek 支持矩阵（启动器 v0.1.10）
+# DeepSeek 支持矩阵（启动器 v0.1.11）
 
 本机 Strata 同时存在两个引擎，启动器按当前模型配置识别，互不干扰：
 
@@ -34,13 +34,15 @@
 | 采样 / 思考强度 / 预设 | ✅ 支持 | 服务端参数，与引擎无关 |
 | 局域网 / 端口 / API key / 防火墙 | ✅ 支持 | 与模型无关 |
 | 停止服务 | ✅ 支持 | 进程树同时识别 `engine\strata.exe` 与 `engine-dsv41\<版本>\strata-dsv41.exe` |
-| 官方更新 | ✅ 支持 | 无上游时也会采用带发布说明的最新官方标签（如 0.2.4.2） |
+| 官方更新 | ✅ 支持 | 跟随最新稳定 Release 及同系列补丁标签；不依赖本机分支的 upstream |
 | Monitor 悬浮窗 | ⚠️ 待实测 | 读官方遥测接口，代码与模型无关 |
 | GPU 功率 | ✅ 支持 | 系统级，与模型无关 |
 | 性能校准 | ✅ 官方调优 | 原按钮变为「官方调优」，运行 `tools/dsv41/tune.py --config <配置> --mode quick`（等同 `strata launch --tune quick`） |
 | 规划预测 | ✅ 新增 | 运行 `strata launch --model <规格> --family deepseek41 --data-dir <数据> --plan`，只读 |
 | 批量 Benchmark | ⛔ 禁用并说明 | Benchmark 的上下文档位、Needle、并发假设是 Qwen 口径；DeepSeek 模型不出现在列表里 |
-| 视觉 / 并行请求 | ⛔ 禁用 | 官方明确忽略（`--vision` / `--parallel`） |
+| 图像输入 | ⚠️ 条件支持 | DeepSeek 引擎 0.1.52+ 且模型包含视觉塔时保存 `--vision on/off`；纯文本包保持禁用 |
+| 并行请求 | ⛔ 禁用 | DeepSeek 不使用 Qwen 的 `--parallel` 参数 |
+| 新版加速 | ⚠️ 条件支持 | DeepSeek 引擎 0.1.52+ 可切换；默认开启，关闭时写入官方 `DS4_DEFAULTS=026` 等环境变量 |
 | 使用 KG / MTP / DFlash2 | ⛔ 不适用 | dsv41 没有这些概念 |
 
 ## 多卡规则（官方依据）
