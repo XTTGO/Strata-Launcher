@@ -1,6 +1,16 @@
 # Strata 辅助启动器更新日志
 
-启动器版本独立于 Strata 官方版本。当前发布版本为 `0.1.11`；该版针对本机 Strata `v0.2.7.1` 源码安装版校验。发布时本机 Qwen 引擎 `0.1.50`、DeepSeek 引擎 `0.1.51`；新功能需要官方 `0.1.52` 引擎。后续本机版本以实际安装状态为准。
+启动器版本独立于 Strata 官方版本。当前发布版本为 `0.1.12`；该版针对本机 Strata `v0.2.7.1` 源码安装版校验。发布时本机 Qwen 引擎 `0.1.52`（本修复走通后由 `0.1.50` 升级，旧引擎保留在 `engine\.previous`）、DeepSeek 引擎 `0.1.52`。后续本机版本以实际安装状态为准。
+
+## 0.1.12 — 2026-10-29
+
+- 修复「更新引擎（Qwen）」替换前核对签名暂存版本这一步（0.1.11 新加的代码）：那条 `python -c` 命令用双引号写 `engine-feed`，PowerShell 5.1 拼装原生进程参数时**会丢掉参数内部的双引号**，Python 实际收到 `ec.resolve(setup.home() / engine-feed, full=True)`，按减法解析后报 `NameError: name 'engine' is not defined`，退出码 1。脚本又把捕获到的 stderr 当成版本号，所以用户看到的是「签名暂存引擎版本 python.exe : Traceback … 与官方提供的 0.1.52 不一致；未替换本机 engine」。下载与验签其实已经成功（`engine-feed\engine\0.1.52-windows-x86_64-cuda-cuda13` 已就位并验签通过），只是没走到替换那一步。
+  - 命令改成与同一函数里取暂存目录那条一致的写法：外层 PowerShell 双引号、内层 Python 单引号，PowerShell 不会改动单引号。
+  - 退出码非 0 单独报错（`无法核对签名暂存引擎的版本：…`），不再把 traceback 冒充成版本号；版本不一致仍是原来的提示。
+- 回归测试补进 `tests\Test-Strata-Launcher-EngineOnly.ps1`：断言替身 python **实际收到的参数**里必须是 `'engine-feed'`。原来的替身只判断参数中含 `ec.resolve`，引号被丢掉也照样返回版本号，所以 0.1.11 的 41 个 PowerShell 测试全过却没拦住这个故障。
+- 记录一个改脚本时必须遵守的前提：仓库的 `.ps1` 带 UTF-8 BOM，去掉 BOM 后 Windows PowerShell 5.1 按 GBK 解析中文文案，整个脚本直接语法错误（`Unexpected token 'Strata'`），报错内容看起来与源码无关。
+- 验证：`Test-Strata-Launcher-EngineOnly`（含新断言）与 `EngineVersion` / `EngineFeatures` / `EngineConfigPath` / `DeepSeekEngine` 共 5 个 PowerShell 测试通过；用真实暂存包实测修复后的探测命令返回 `0.1.52`（退出码 0），并用参数回显确认旧写法到达 python.exe 时引号已经丢失。**按本次要求省略完整本地验证**：Python 测试套件与其余 PowerShell 测试未重跑。
+- **实机验收：**修复后的「更新引擎（Qwen）」在本机走通，Qwen 引擎 `0.1.50 → 0.1.52`（`engine\BUILD.json` 版本 `0.1.52`、commit `a42cc3d7df70`；旧引擎保留在 `engine\.previous`，其 `BUILD.json` 是 `0.1.50`；替换时间戳 22:02:49。官方 `--update` 在兼容下限 `0.1.46` 下不会替换引擎，所以替换来自签名暂存的 `engine_from_feed` 路径）。升级后真实启动 `qwen3.8-flash-next-iq3_s`，`/health` 报 `loaded: true`、`max_context: 262144`、`images: true`；日志记录一次 145,744 token 提示下生成 2,022 token / 22.975 s（88.0 tok/s，草稿接受 1,222/1,788）。DeepSeek 引擎同为 `0.1.52`（`engine-dsv41\0.1.52-windows-x86_64-cuda-cuda13`，模型配置已指向该目录）。**未做**：与 `0.1.50` 的速度对照、长对话与停止验收。
 
 ## 0.1.11 — 2026-10-29
 

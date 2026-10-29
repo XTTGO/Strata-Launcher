@@ -2,9 +2,9 @@
 
 **为已经安装 Strata 的 Windows 用户提供图形化启动、模型设置和批量 Benchmark。**
 
-最新正式版：**v0.1.11** · 针对 **Strata v0.2.7.1** 完成启动器兼容性校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.11)
+最新正式版：**v0.1.12** · 针对 **Strata v0.2.7.1** 完成启动器兼容性校验 · [安装包下载](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.12)
 
-v0.1.11 对齐官方 0.2.7.1 的 Qwen / DeepSeek 引擎功能：按硬件和模型提供新版速度开关，DeepSeek 图像输入会检查引擎版本与模型包视觉塔；更新器只跟随官方稳定版标签，并在引擎更新时核对签名源与安装版本。本版的功能适配经过测试；本机尚未安装 0.1.52 引擎，也没有完成新版图像或速度实机验收。
+v0.1.12 修复「更新引擎（Qwen）」在替换前核对签名暂存版本时的引号丢失：PowerShell 把交给 `python.exe` 的参数内层双引号删掉，Python 于是读到 `setup.home() / engine-feed` 并报 `NameError`，更新被误报成"暂存版本与官方不一致"而没有替换引擎（下载和验签其实已成功）。v0.1.11 对齐官方 0.2.7.1 的 Qwen / DeepSeek 引擎功能：按硬件和模型提供新版速度开关，DeepSeek 图像输入会检查引擎版本与模型包视觉塔；更新器只跟随官方稳定版标签，并在引擎更新时核对签名源与安装版本。本机已用修复后的入口把 Qwen 引擎升到 0.1.52 并真实启动模型（`/health` 报 `loaded: true`），但新版图像与速度收益没有做对照验收。
 
 > 启动器依赖已有的 Strata 安装。打包版不包含模型、Strata 引擎或 Python 环境；官方 App 和独立 Terminal 的安装方式暂不支持。
 
@@ -37,7 +37,7 @@ v0.1.11 对齐官方 0.2.7.1 的 Qwen / DeepSeek 引擎功能：按硬件和模�
 ## 快速开始
 
 1. 在 Windows 10 或 11 上，通过 Strata 的 `START-HERE.bat` 完成源码安装，并安装至少一个模型。
-2. 从 [v0.1.11 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.11) 下载 `Strata-Launcher-v0.1.11-for-existing-install.zip`。
+2. 从 [v0.1.12 Release](https://github.com/XTTGO/Strata-Launcher/releases/tag/v0.1.12) 下载 `Strata-Launcher-v0.1.12-for-existing-install.zip`。
 3. 解压后，将整个 `launcher` 文件夹放进 Strata 根目录，与 `START-HERE.bat` 并列。
 4. 双击 `launcher\Strata-Launcher.bat`。
 
@@ -70,10 +70,10 @@ v0.1.11 对齐官方 0.2.7.1 的 Qwen / DeepSeek 引擎功能：按硬件和模�
 - [详细安装与功能说明](README.txt)
 - [发布规则（怎么发一个版本）](docs/RELEASE.md)
 - [版本更新记录](CHANGELOG.md)
+- [v0.1.12 发布说明与 SHA-256](releases/v0.1.12/RELEASE_NOTES.md)
 - [v0.1.11 发布说明与 SHA-256](releases/v0.1.11/RELEASE_NOTES.md)
 - [v0.1.10 发布说明与 SHA-256](releases/v0.1.10/RELEASE_NOTES.md)
 - [v0.1.9 发布说明与 SHA-256](releases/v0.1.9/RELEASE_NOTES.md)
 - [v0.1.8 发布说明与 SHA-256](releases/v0.1.8/RELEASE_NOTES.md)
-- [v0.1.7.5 发布说明与 SHA-256](releases/v0.1.7.5/RELEASE_NOTES.md)
 
-v0.1.11 的发布验证范围见对应发布说明；本机 Strata v0.2.7.1 仍装着 Qwen 0.1.50 和 DeepSeek 0.1.51，新引擎功能尚未实机验收。
+v0.1.12 的发布验证范围见对应发布说明；本机 Strata v0.2.7.1 已安装 Qwen 引擎 `0.1.52`（旧引擎留在 `engine\.previous`）和 DeepSeek 引擎 `0.1.52`，模型已在 0.1.52 上真实启动，新版图像与速度收益未做对照验收。
