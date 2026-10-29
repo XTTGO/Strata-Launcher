@@ -249,10 +249,19 @@ function Invoke-SignedFeedEngineUpdate {
             throw "官方签名更新源没有装上新引擎：$why"
         }
         if ($run.Note) { Write-Host "  $($run.Note)" }
+        # Python source handed to python.exe on a command line: PowerShell 5.1 drops the inner double quotes when it
+        # builds a native process's argument list, so `setup.home() / "engine-feed"` arrives as the subtraction
+        # `setup.home() / engine-feed` (NameError: name 'engine' is not defined) and this check then reports the
+        # captured traceback as if it were a version. Python must see its own quoting, as in the store lookup above.
         $staged = Invoke-FeedUpdateCommand -Python $python -FeedArguments ([string[]]@('-c',
-            'import setup; from strata_control import engine_component as ec; print(ec.resolve(setup.home() / "engine-feed", full=True).version)'))
+            "import setup; from strata_control import engine_component as ec; print(ec.resolve(setup.home() / 'engine-feed', full=True).version)"))
         $stagedVersion = ([string]$staged.Text).Trim()
-        if ($staged.Code -ne 0 -or $stagedVersion -ne $offeredVersion) {
+        if ($staged.Code -ne 0) {
+            $why = if ($staged.Note) { $staged.Note } elseif ($staged.Text) { $staged.Text } else { "退出码 $($staged.Code)" }
+            if ($why.Length -gt 600) { $why = $why.Substring(0, 600) + ' ...' }
+            throw "无法核对签名暂存引擎的版本：$why"
+        }
+        if ($stagedVersion -ne $offeredVersion) {
             throw "签名暂存引擎版本 $stagedVersion 与官方提供的 $offeredVersion 不一致；未替换本机 engine。"
         }
         # The update staged the verified engine in the component store; engine_from_feed then copies it into

@@ -85,6 +85,12 @@ public class Program {
     $calls = Get-Content -LiteralPath $feedMarker -Raw
     if ($calls -notmatch 'update --no-control') { throw 'Engine-only update did not run the signed-feed update command.' }
     if ($calls -notmatch 'engine_from_feed') { throw 'The signed update feed bridge was not the command that ran.' }
+    # The stub records the arguments python.exe actually received, so this pins the quoting of the staged-version
+    # probe: PowerShell hands over setup.home() / engine-feed when the payload quotes engine-feed with double
+    # quotes, and Python then raises NameError instead of printing the version.
+    if ($calls -notmatch "engine_component as ec; print\(ec\.resolve\(setup\.home\(\) / 'engine-feed', full=True\)\.version\)") {
+        throw 'The staged-engine version probe lost its quoting: python.exe received setup.home() / engine-feed (NameError: name engine is not defined).'
+    }
     if (Test-Path -LiteralPath $updateMarker) { throw 'Engine-only update ran the official UPDATE.bat.' }
     $bridgeCalls = ([regex]::Matches($calls, 'engine_from_feed')).Count
     if ((Invoke-Updater @('-EngineOnly')) -ne 0) { throw 'A second Qwen engine check failed.' }
